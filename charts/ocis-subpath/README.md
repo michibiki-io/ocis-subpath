@@ -22,7 +22,8 @@ helm template ocis charts/ocis-subpath \
 - This chart uses `WEB_ASSET_CORE_PATH` and `WEB_UI_CONFIG_FILE` for custom Web assets and runtime JSON config.
 - This chart mounts an oCIS proxy CSP config by default. It keeps the upstream defaults and adds `data:` to `font-src` so PDF previews can load embedded `data:font/woff2` fonts.
 - Recommended production deployment remains a dedicated subdomain when possible.
-- Do not configure ingress rewrite rules that strip the subpath before requests reach oCIS.
+- `ingress.enabled=true` renders Traefik `IngressRoute` and middleware resources. Traefik CRDs must be installed before applying the chart.
+- The chart routes Web, IDP, discovery, API, and capabilities paths separately. Only backend API paths are stripped before they reach the oCIS proxy.
 - Chart releases use independent Helm SemVer. Backend and patcher image tags are versioned separately and set through `values.yaml`.
 
 ## Validation

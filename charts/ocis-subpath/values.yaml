@@ -121,14 +121,12 @@ service:
 
 ingress:
   enabled: false
-  className: ""
+  entryPoints:
+    - websecure
   annotations: {}
   hosts:
     - host: example.com
-      paths:
-        - path: /ocis
-          pathType: Prefix
-  tls: []
+  tls: {}
 
 serviceAccount:
   create: true

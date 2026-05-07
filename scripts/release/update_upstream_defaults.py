@@ -9,6 +9,8 @@ from typing import Callable
 
 
 ROOT = Path(__file__).resolve().parents[2]
+OCIS_TAG_PATTERN = re.compile(r"^(?P<version>[0-9]+\.[0-9]+\.[0-9]+)-subpath\.(?P<revision>[0-9]+)$")
+WEB_TAG_PATTERN = re.compile(r"^web-v?(?P<version>[0-9]+\.[0-9]+\.[0-9]+)-subpath\.(?P<revision>[0-9]+)$")
 
 
 def normalize_ref(value: str, label: str) -> str:
@@ -64,6 +66,28 @@ def read_values_tags(text: str) -> tuple[str, str]:
                 continue
 
     return root_image_tag, patcher_image_tag
+
+
+def ocis_ref_from_tag(tag: str) -> str:
+    match = OCIS_TAG_PATTERN.match(tag)
+    return f"v{match.group('version')}" if match else ""
+
+
+def web_ref_from_tag(tag: str) -> str:
+    match = WEB_TAG_PATTERN.match(tag)
+    return f"v{match.group('version')}" if match else ""
+
+
+def next_ocis_tag_for_ref(latest_ref: str, current_ref: str, current_tag: str) -> str:
+    if latest_ref == current_ref and current_tag:
+        return current_tag
+    return f"{latest_ref.removeprefix('v')}-subpath.1"
+
+
+def next_web_tag_for_ref(latest_ref: str, current_ref: str, current_tag: str) -> str:
+    if latest_ref == current_ref and current_tag:
+        return current_tag
+    return f"web-v{latest_ref.removeprefix('v')}-subpath.1"
 
 
 def update_values_tags(text: str, ocis_tag: str, patcher_tag: str) -> str:
@@ -125,10 +149,6 @@ def main() -> int:
 
     latest_ocis_ref = normalize_ref(args.ocis_ref, "ocis ref")
     latest_web_ref = normalize_ref(args.web_ref, "web ref")
-    latest_ocis_version = latest_ocis_ref.removeprefix("v")
-    latest_web_version = latest_web_ref.removeprefix("v")
-    next_ocis_tag = f"{latest_ocis_version}-subpath.1"
-    next_web_tag = f"web-v{latest_web_version}-subpath.1"
 
     values_path = ROOT / "charts/ocis-subpath/values.yaml"
     chart_path = ROOT / "charts/ocis-subpath/Chart.yaml"
@@ -139,14 +159,10 @@ def main() -> int:
 
     values = values_path.read_text(encoding="utf-8")
     current_ocis_tag, current_patcher_tag = read_values_tags(values)
-
-    current_ocis_ref = ""
-    if current_ocis_tag:
-        current_ocis_version = re.sub(r"-subpath\.[0-9]+$", "", current_ocis_tag).removeprefix("v")
-        current_ocis_ref = f"v{current_ocis_version}"
-
-    web_match = re.match(r"web-v?([0-9]+\.[0-9]+\.[0-9]+)-subpath\.[0-9]+$", current_patcher_tag)
-    current_web_ref = f"v{web_match.group(1)}" if web_match else ""
+    current_ocis_ref = ocis_ref_from_tag(current_ocis_tag)
+    current_web_ref = web_ref_from_tag(current_patcher_tag)
+    next_ocis_tag = next_ocis_tag_for_ref(latest_ocis_ref, current_ocis_ref, current_ocis_tag)
+    next_web_tag = next_web_tag_for_ref(latest_web_ref, current_web_ref, current_patcher_tag)
 
     changed = latest_ocis_ref != current_ocis_ref or latest_web_ref != current_web_ref
     if not changed:

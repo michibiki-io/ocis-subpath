@@ -3,5 +3,5 @@ oCIS subpath adapter chart
 Public URL: {{ include "ocis-subpath.publicUrl" . }}
 Health endpoint: {{ include "ocis-subpath.probePath" . | trim }}
 
-This chart expects the ingress or upstream reverse proxy to preserve the subpath.
-Do not enable rewrite rules that strip {{ include "ocis-subpath.normalizedSubpath" . | trim }}.
+This chart expects external reverse proxies to preserve the subpath.
+When ingress.enabled=true, the chart renders Traefik routing and strips {{ include "ocis-subpath.normalizedSubpath" . | trim }} only for backend API paths.

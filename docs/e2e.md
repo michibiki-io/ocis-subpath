@@ -138,7 +138,7 @@ make e2e-runner
 - `/config.json` requested without subpath: verify `<base href="/ocis/">` exists in the patched `index.html` and check for root-absolute upstream changes before enabling targeted patching.
 - `/js/...` requested without subpath: inspect the Playwright suspicious-request assertions and only then enable `webAssetsPatcher.patchAbsoluteUrls`.
 - OIDC issuer mismatch: keep `PROXY_OIDC_ISSUER`, `OCIS_OIDC_ISSUER`, `WEB_OIDC_AUTHORITY`, and the generated `openIdConnect.authority` aligned.
-- Ingress rewrite stripping subpath: remove rewrite rules that drop `/ocis` before the request reaches oCIS.
+- Traefik routing mismatch: compare rendered chart `IngressRoute` objects with the expected Web, IDP, discovery, API, and capabilities routes. API routes should strip `/ocis`; Web and IDP routes should keep it.
 - Stale `.gz` files after HTML patch: the patcher deletes `.gz` and `.br` siblings for modified HTML files to avoid serving stale compressed content.
 - Shared volume permissions: keep the chart `runAsUser`, `runAsGroup`, and `fsGroup` aligned with the non-root patcher user.
 
