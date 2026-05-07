@@ -1,0 +1,173 @@
+name: Release Helm chart
+
+on:
+  pull_request:
+    types:
+      - closed
+  workflow_dispatch:
+    inputs:
+      chart_version:
+        description: "Chart SemVer. Leave empty to use Chart.yaml."
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+  packages: write
+
+concurrency:
+  group: release-chart-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    if: >-
+      github.event_name != 'pull_request' ||
+      (
+        github.event.pull_request.merged == true &&
+        github.event.pull_request.base.ref == 'main' &&
+        contains(github.event.pull_request.labels.*.name, 'release-on-merge')
+      )
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.merge_commit_sha || github.sha }}
+
+      - name: Resolve chart version
+        id: vars
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+          INPUT_CHART_VERSION: ${{ inputs.chart_version }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.merge_commit_sha }}
+        run: |
+          set -euo pipefail
+
+          if [ "${EVENT_NAME}" = "pull_request" ]; then
+            original_output="${GITHUB_OUTPUT}"
+            tmp_output="$(mktemp)"
+            GITHUB_OUTPUT="${tmp_output}" python3 scripts/release/read_release.py \
+              --base-sha "${PR_BASE_SHA}" \
+              --head-sha "${PR_HEAD_SHA}"
+            # shellcheck disable=SC1090
+            . "${tmp_output}"
+            rm -f "${tmp_output}"
+            GITHUB_OUTPUT="${original_output}"
+            chart_version="${chart_version}"
+            app_version="${chart_app_version}"
+            git_tag="${chart_git_tag}"
+            create_tag="true"
+          elif [ -n "${INPUT_CHART_VERSION}" ]; then
+            release_chart="true"
+            chart_version="${INPUT_CHART_VERSION#v}"
+            create_tag="true"
+          else
+            release_chart="true"
+            chart_version="$(awk '/^version:/ { print $2; exit }' charts/ocis-subpath/Chart.yaml | tr -d '"')"
+            create_tag="true"
+          fi
+
+          if ! [[ "${chart_version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "chart version must look like 0.2.0" >&2
+            exit 1
+          fi
+
+          if [ "${EVENT_NAME}" != "pull_request" ]; then
+            git_tag="chart/v${chart_version}"
+            app_version="$(awk '/^appVersion:/ { print $2; exit }' charts/ocis-subpath/Chart.yaml | tr -d '"')"
+          fi
+
+          {
+            echo "chart_version=${chart_version}"
+            echo "app_version=${app_version}"
+            echo "git_tag=${git_tag}"
+            echo "create_tag=${create_tag}"
+            echo "release_chart=${release_chart}"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Stop when chart release is disabled
+        if: steps.vars.outputs.release_chart != 'true'
+        run: |
+          set -euo pipefail
+          echo "release.chart=false in release.yaml. Skipping chart release."
+
+      - name: Create and push release tag
+        if: steps.vars.outputs.release_chart == 'true' && steps.vars.outputs.create_tag == 'true'
+        env:
+          GIT_TAG: ${{ steps.vars.outputs.git_tag }}
+        run: |
+          set -euo pipefail
+          git fetch --force --tags origin
+          if git rev-parse -q --verify "refs/tags/${GIT_TAG}" >/dev/null; then
+            tagged_commit="$(git rev-list -n 1 "${GIT_TAG}")"
+            if [ "${tagged_commit}" != "${GITHUB_SHA}" ]; then
+              echo "Refusing to reuse ${GIT_TAG}; it points to ${tagged_commit}, not ${GITHUB_SHA}" >&2
+              exit 1
+            fi
+            echo "Tag already exists on this commit: ${GIT_TAG}"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "${GIT_TAG}" "${GITHUB_SHA}" -m "Release ${GIT_TAG}"
+          git push origin "refs/tags/${GIT_TAG}"
+
+      - name: Set up Helm
+        if: steps.vars.outputs.release_chart == 'true'
+        uses: azure/setup-helm@v4
+
+      - name: Package Helm chart
+        if: steps.vars.outputs.release_chart == 'true'
+        run: |
+          set -euo pipefail
+          mkdir -p dist/charts
+          helm lint ./charts/ocis-subpath
+          helm package ./charts/ocis-subpath \
+            --version "${{ steps.vars.outputs.chart_version }}" \
+            --app-version "${{ steps.vars.outputs.app_version }}" \
+            --destination dist/charts
+
+      - name: Log in to GHCR for Helm
+        if: steps.vars.outputs.release_chart == 'true'
+        run: |
+          set -euo pipefail
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io \
+            --username "${{ github.actor }}" \
+            --password-stdin
+
+      - name: Push Helm chart to GHCR OCI registry
+        if: steps.vars.outputs.release_chart == 'true'
+        env:
+          GHCR_OWNER: ${{ github.repository_owner }}
+        run: |
+          set -euo pipefail
+          owner="${GHCR_OWNER,,}"
+          helm push "dist/charts/ocis-subpath-${{ steps.vars.outputs.chart_version }}.tgz" \
+            "oci://ghcr.io/${owner}/charts"
+
+      - name: Write release notes
+        if: steps.vars.outputs.release_chart == 'true'
+        run: |
+          set -euo pipefail
+          cat > release-notes.md <<EOF
+          Helm chart release.
+
+          - Chart version: \`${{ steps.vars.outputs.chart_version }}\`
+          - App version: \`${{ steps.vars.outputs.app_version }}\`
+
+          The chart defaults define the backend and web assets patcher image tags. Update those defaults through a PR before cutting a chart release.
+          EOF
+
+      - name: Create or update GitHub Release
+        if: steps.vars.outputs.release_chart == 'true'
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ steps.vars.outputs.git_tag }}
+          name: Helm chart ${{ steps.vars.outputs.chart_version }}
+          body_path: release-notes.md
+          generate_release_notes: false
+          files: dist/charts/*.tgz

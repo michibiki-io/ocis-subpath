@@ -1,0 +1,191 @@
+diff --git a/vendor/github.com/libregraph/lico/bootstrap/bootstrap.go b/vendor/github.com/libregraph/lico/bootstrap/bootstrap.go
+index a06ac946..1c9ab99a 100644
+--- a/vendor/github.com/libregraph/lico/bootstrap/bootstrap.go
++++ b/vendor/github.com/libregraph/lico/bootstrap/bootstrap.go
+@@ -407,6 +407,15 @@ func (bs *bootstrap) MakeURIPath(api APIType, subpath string) string {
+ 	return uriPath
+ }
+ 
++func (bs *bootstrap) MakeWellKnownURIPath(subpath string) string {
++	subpath = strings.TrimPrefix(subpath, "/")
++	prefix := strings.Trim(bs.uriBasePath, "/")
++	if prefix == "" {
++		return fmt.Sprintf("/.well-known/%s", subpath)
++	}
++	return fmt.Sprintf("/%s/.well-known/%s", prefix, subpath)
++}
++
+ func (bs *bootstrap) MakeURI(api APIType, subpath string) *url.URL {
+ 	uriPath := bs.MakeURIPath(api, subpath)
+ 	uri, _ := url.Parse(bs.config.IssuerIdentifierURI.String())
+@@ -474,7 +483,7 @@ func (bs *bootstrap) setupOIDCProvider(ctx context.Context) (*oidcProvider.Provi
+ 		Config: bs.config.Config,
+ 
+ 		IssuerIdentifier:       bs.config.IssuerIdentifierURI.String(),
+-		WellKnownPath:          "/.well-known/openid-configuration",
++		WellKnownPath:          bs.MakeWellKnownURIPath("openid-configuration"),
+ 		JwksPath:               bs.MakeURIPath(APITypeKonnect, "/jwks.json"),
+ 		AuthorizationPath:      bs.config.AuthorizationEndpointURI.EscapedPath(),
+ 		TokenPath:              bs.MakeURIPath(APITypeKonnect, "/token"),
+diff --git a/services/idp/src/App.jsx b/services/idp/src/App.jsx
+index 47e2e5e9..80dded80 100644
+--- a/services/idp/src/App.jsx
++++ b/services/idp/src/App.jsx
+@@ -12,6 +12,22 @@ const LazyMain = lazy(() => import(/* webpackChunkName: "identifier-main" */ './
+ 
+ console.info(`Kopano Identifier build version: ${version.build}`) // eslint-disable-line no-console
+ 
++const webConfigUrl = () => {
++  const root = document.getElementById('root')
++  const pathPrefix = root ? root.getAttribute('data-path-prefix') : ''
++  if (!pathPrefix || pathPrefix === '__PATH_PREFIX__') {
++    return '/config.json'
++  }
++
++  const normalizedPrefix = pathPrefix.replace(/\/+$/, '')
++  const signInIndex = normalizedPrefix.indexOf('/signin/v1')
++  if (signInIndex <= 0) {
++    return '/config.json'
++  }
++
++  return `${normalizedPrefix.slice(0, signInIndex)}/config.json`
++}
++
+ const App = ({ bgImg }): ReactElement => {
+   const [theme, setTheme] = useState(null)
+   const [config, setConfig] = useState(null)
+@@ -21,7 +37,7 @@ const App = ({ bgImg }): ReactElement => {
+   useEffect(() => {
+     const fetchData = async () => {
+       try {
+-        const configResponse = await fetch('/config.json')
++        const configResponse = await fetch(webConfigUrl())
+         const configData = await configResponse.json()
+         setConfig(configData)
+ 
+diff --git a/services/idp/src/components/ResponsiveScreen.jsx b/services/idp/src/components/ResponsiveScreen.jsx
+index 5d7b4b20..19c55fb3 100644
+--- a/services/idp/src/components/ResponsiveScreen.jsx
++++ b/services/idp/src/components/ResponsiveScreen.jsx
+@@ -34,10 +34,20 @@ const ResponsiveScreen = (props) => {
+     className,
+     ...other
+   } = props;
+-  const { theme } = useContext(InfiniteScaleContext);
++  const { theme, config } = useContext(InfiniteScaleContext);
++
++  const themedAssetUrl = (assetPath) => {
++    if (!assetPath || /^https?:\/\//.test(assetPath)) {
++      return assetPath
++    }
++
++    const base = config?.server ? config.server.replace(/\/+$/, '') : ''
++    const normalizedPath = assetPath.replace(/^\/+/, '')
++    return base ? `${base}/${normalizedPath}` : `/${normalizedPath}`
++  }
+ 
+   const logo = (theme && !withoutLogo) ? (
+-        <img src={'/' + theme.common?.logo} className="oc-logo" alt="ownCloud Logo"/>
++        <img src={themedAssetUrl(theme.common?.logo)} className="oc-logo" alt="ownCloud Logo"/>
+     ) : null;
+ 
+   const content = loading ? <Loading/> : (withoutPadding ? children : <DialogContent>{children}</DialogContent>);
+diff --git a/services/idp/pkg/middleware/static.go b/services/idp/pkg/middleware/static.go
+index fb1b987a..48847c91 100644
+--- a/services/idp/pkg/middleware/static.go
++++ b/services/idp/pkg/middleware/static.go
+@@ -15,6 +15,8 @@ func Static(root string, fs http.FileSystem, tp trace.TracerProvider) func(http.
+ 	if !strings.HasSuffix(root, "/") {
+ 		root = root + "/"
+ 	}
++	staticPrefix := root + "static/"
++	staticTargetPrefix := root + "identifier/static/"
+ 
+ 	static := http.StripPrefix(
+ 		root,
+@@ -33,14 +35,14 @@ func Static(root string, fs http.FileSystem, tp trace.TracerProvider) func(http.
+ 			r = r.WithContext(ctx)
+ 
+ 			// serve the static assets for the identifier web app
+-			if strings.HasPrefix(r.URL.Path, "/signin/v1/static/") {
++			if strings.HasPrefix(r.URL.Path, staticPrefix) {
+ 				if strings.HasSuffix(r.URL.Path, "/") {
+ 					// but no listing of folders
+ 					span.SetAttributes(attribute.KeyValue{Key: "path", Value: attribute.StringValue(r.URL.Path)})
+ 					span.SetStatus(codes.Error, "asset not found")
+ 					http.NotFound(w, r)
+ 				} else {
+-					r.URL.Path = strings.Replace(r.URL.Path, "/signin/v1/static/", "/signin/v1/identifier/static/", 1)
++					r.URL.Path = strings.Replace(r.URL.Path, staticPrefix, staticTargetPrefix, 1)
+ 					span.SetAttributes(attribute.KeyValue{Key: "server", Value: attribute.StringValue(r.URL.Path)})
+ 					static.ServeHTTP(w, r)
+ 				}
+diff --git a/services/idp/pkg/service/v0/service.go b/services/idp/pkg/service/v0/service.go
+index 0db1d0a6..d25f484f 100644
+--- a/services/idp/pkg/service/v0/service.go
++++ b/services/idp/pkg/service/v0/service.go
+@@ -258,6 +258,8 @@ type IDP struct {
+ 
+ // initMux initializes the internal idp gorilla mux and mounts it in to an ocis chi-router
+ func (idp *IDP) initMux(ctx context.Context, r []server.WithRoutes, h http.Handler, options Options) {
++	signInPrefix := pathWithOptionalPrefix(options.Config.IDP.URIBasePath, "/signin/v1")
++
+ 	gm := mux.NewRouter()
+ 	for _, route := range r {
+ 		route.AddRoutes(ctx, gm)
+@@ -272,7 +274,7 @@ func (idp *IDP) initMux(ctx context.Context, r []server.WithRoutes, h http.Handl
+ 	idp.mux.Use(options.Middleware...)
+ 
+ 	idp.mux.Use(middleware.Static(
+-		"/signin/v1/",
++		signInPrefix+"/",
+ 		assets.New(
+ 			assets.Logger(options.Logger),
+ 			assets.Config(options.Config),
+@@ -281,9 +283,9 @@ func (idp *IDP) initMux(ctx context.Context, r []server.WithRoutes, h http.Handl
+ 	))
+ 
+ 	// handle / | index.html with a template that needs to have the BASE_PREFIX replaced
+-	idp.mux.Get("/signin/v1/identifier", idp.Index())
+-	idp.mux.Get("/signin/v1/identifier/", idp.Index())
+-	idp.mux.Get("/signin/v1/identifier/index.html", idp.Index())
++	idp.mux.Get(signInPrefix+"/identifier", idp.Index())
++	idp.mux.Get(signInPrefix+"/identifier/", idp.Index())
++	idp.mux.Get(signInPrefix+"/identifier/index.html", idp.Index())
+ 
+ 	idp.mux.Mount("/", gm)
+ 
+@@ -293,6 +295,18 @@ func (idp *IDP) initMux(ctx context.Context, r []server.WithRoutes, h http.Handl
+ 	})
+ }
+ 
++func pathWithOptionalPrefix(prefix string, subpath string) string {
++	prefix = strings.TrimSuffix(prefix, "/")
++	subpath = "/" + strings.Trim(subpath, "/")
++	if prefix == "" || prefix == "/" {
++		return subpath
++	}
++	if !strings.HasPrefix(prefix, "/") {
++		prefix = "/" + prefix
++	}
++	return prefix + subpath
++}
++
+ // ServeHTTP implements the Service interface.
+ func (idp *IDP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+ 	idp.mux.ServeHTTP(w, r)
+@@ -313,12 +327,11 @@ func (idp *IDP) Index() http.HandlerFunc {
+ 		idp.logger.Fatal().Err(err).Msg("Could not close body")
+ 	}
+ 
+-	// TODO add environment variable to make the path prefix configurable
+-	pp := "/signin/v1"
++	pp := pathWithOptionalPrefix(idp.config.IDP.URIBasePath, "/signin/v1")
+ 	indexHTML := bytes.Replace(template, []byte("__PATH_PREFIX__"), []byte(pp), 1)
+ 
+ 	background := idp.config.Asset.LoginBackgroundUrl
+-	indexHTML = bytes.Replace(template, []byte("__BG_IMG_URL__"), []byte(background), 1)
++	indexHTML = bytes.Replace(indexHTML, []byte("__BG_IMG_URL__"), []byte(background), 1)
+ 
+ 	nonce := rndm.GenerateRandomString(32)
+ 	indexHTML = bytes.Replace(indexHTML, []byte("__CSP_NONCE__"), []byte(nonce), 1)

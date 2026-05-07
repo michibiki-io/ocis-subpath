@@ -1,0 +1,26 @@
+# Local environment files
+compose/.env
+compose/.generated/
+dev/.env
+
+# Python caches
+__pycache__/
+*.py[cod]
+
+# Node / Playwright artifacts
+tests/e2e/.npm-cache/
+tests/e2e/node_modules/
+tests/e2e/playwright-report/
+tests/e2e/test-results/
+
+# Generic local artifacts
+.DS_Store
+coverage/
+
+# ignore temporary files
+*.tmp
+**/.tmp**
+
+# ignore log files
+*.log
+**/.log**

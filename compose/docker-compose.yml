@@ -1,0 +1,97 @@
+services:
+  traefik:
+    image: traefik:v3.4
+    command:
+      - --entrypoints.websecure.address=:443
+      - --providers.file.filename=/etc/traefik/dynamic.yml
+      - --providers.file.watch=true
+    ports:
+      - "9200:443"
+    volumes:
+      - ${TRAEFIK_DYNAMIC_CONFIG:-./.generated/traefik-dynamic.yml}:/etc/traefik/dynamic.yml:ro
+    networks:
+      - default
+
+  web-assets-patcher:
+    build:
+      context: ../images/web-assets-patcher
+      dockerfile: Dockerfile
+      args:
+        OWNCLOUD_WEB_REF: ${OWNCLOUD_WEB_REF:-v12.3.2}
+        OWNCLOUD_WEB_REPO: ${OWNCLOUD_WEB_REPO:-https://github.com/owncloud/web.git}
+        NODE_IMAGE: ${NODE_IMAGE:-node:24-alpine}
+    environment:
+      SUBPATH: ${OCIS_SUBPATH:-/ocis}
+      PUBLIC_URL: ${OCIS_PUBLIC_URL:-https://ocis.local:9200/ocis}
+      OIDC_AUTHORITY: ${OCIS_OIDC_AUTHORITY:-https://ocis.local:9200/ocis}
+      OIDC_METADATA_URL: ${OCIS_OIDC_METADATA_URL:-https://ocis.local:9200/ocis/.well-known/openid-configuration}
+      OIDC_CLIENT_ID: web
+      WEB_APPS_JSON: '["files","preview","pdf-viewer","search","text-editor","admin-settings","epub-reader"]'
+      PATCH_ABSOLUTE_URLS: "true"
+    volumes:
+      - web-assets:/web-assets
+      - web-config:/web-config
+    networks:
+      - default
+
+  ocis:
+    build:
+      context: ../images/ocis-subpath
+      dockerfile: Dockerfile
+      args:
+        OCIS_REPO: ${OCIS_REPO:-https://github.com/owncloud/ocis.git}
+        OCIS_REF: ${OCIS_REF:-v8.0.1}
+    image: ocis-subpath:${OCIS_VERSION:-8.0.1}
+    depends_on:
+      web-assets-patcher:
+        condition: service_completed_successfully
+      traefik:
+        condition: service_started
+    entrypoint:
+      - sh
+      - -ec
+    command:
+      - ocis init || true; exec ocis server
+    environment:
+      OCIS_URL: ${OCIS_PUBLIC_URL:-https://ocis.local:9200/ocis}
+      WEB_HTTP_ROOT: ${OCIS_SUBPATH:-/ocis}
+      IDP_URI_BASE_PATH: ${OCIS_SUBPATH:-/ocis}
+      IDP_HTTP_ADDR: 0.0.0.0:9130
+      FRONTEND_HTTP_ADDR: 0.0.0.0:9140
+      PROXY_TLS: "false"
+      OCIS_INSECURE: "true"
+      PROXY_OIDC_INSECURE: "true"
+      WEB_ASSET_CORE_PATH: /web-assets/dist
+      WEB_UI_CONFIG_FILE: /web-config/config.json
+      WEB_UI_CONFIG_SERVER: ${OCIS_PUBLIC_URL:-https://ocis.local:9200/ocis}
+      WEB_UI_THEME_SERVER: ${OCIS_PUBLIC_URL:-https://ocis.local:9200/ocis}
+      WEB_OIDC_METADATA_URL: ${OCIS_OIDC_METADATA_URL:-https://ocis.local:9200/ocis/.well-known/openid-configuration}
+      WEB_OIDC_AUTHORITY: ${OCIS_OIDC_AUTHORITY:-https://ocis.local:9200/ocis}
+      PROXY_OIDC_ISSUER: ${OCIS_OIDC_AUTHORITY:-https://ocis.local:9200/ocis}
+      OCIS_OIDC_ISSUER: ${OCIS_OIDC_AUTHORITY:-https://ocis.local:9200/ocis}
+      PROXY_OIDC_REWRITE_WELLKNOWN: "true"
+      OCIS_LOG_LEVEL: debug
+      OCIS_JWT_SECRET: insecure-dev-jwt-secret-change-me
+      OCIS_TRANSFER_SECRET: insecure-dev-transfer-secret-change-me
+      OCIS_MACHINE_AUTH_API_KEY: insecure-dev-machine-auth-key-change-me
+      IDM_ADMIN_PASSWORD: admin
+      IDM_CREATE_DEMO_USERS: "true"
+    volumes:
+      - ocis-data:/var/lib/ocis
+      - ocis-config:/etc/ocis
+      - web-assets:/web-assets:ro
+      - web-config:/web-config:ro
+    extra_hosts:
+      - "ocis.local:host-gateway"
+    networks:
+      - default
+
+networks:
+  default:
+    name: ocis-subpath
+
+volumes:
+  ocis-data:
+  ocis-config:
+  web-assets:
+  web-config:

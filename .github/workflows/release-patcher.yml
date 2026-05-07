@@ -1,0 +1,234 @@
+name: Release Web assets patcher
+
+on:
+  pull_request:
+    types:
+      - closed
+  workflow_dispatch:
+    inputs:
+      patcher_version:
+        description: "Patcher SemVer, for example 0.4.0"
+        required: true
+        default: "0.1.0"
+      owncloud_web_ref:
+        description: "Upstream ownCloud Web ref to build, for example v12.3.3"
+        required: true
+        default: "v12.3.3"
+      web_patch_revision:
+        description: "Patch revision for this ownCloud Web ref"
+        required: true
+        default: "1"
+      owncloud_web_repo:
+        description: "Upstream ownCloud Web repository"
+        required: true
+        default: "https://github.com/owncloud/web.git"
+
+permissions:
+  contents: write
+  packages: write
+
+concurrency:
+  group: release-patcher-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    if: >-
+      github.event_name != 'pull_request' ||
+      (
+        github.event.pull_request.merged == true &&
+        github.event.pull_request.base.ref == 'main' &&
+        contains(github.event.pull_request.labels.*.name, 'release-on-merge')
+      )
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.merge_commit_sha || github.sha }}
+
+      - name: Resolve release variables
+        id: vars
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+          INPUT_PATCHER_VERSION: ${{ inputs.patcher_version }}
+          INPUT_WEB_REF: ${{ inputs.owncloud_web_ref }}
+          INPUT_WEB_PATCH_REVISION: ${{ inputs.web_patch_revision }}
+          INPUT_WEB_REPO: ${{ inputs.owncloud_web_repo }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.merge_commit_sha }}
+        run: |
+          set -euo pipefail
+
+          if [ "${EVENT_NAME}" = "pull_request" ]; then
+            original_output="${GITHUB_OUTPUT}"
+            tmp_output="$(mktemp)"
+            GITHUB_OUTPUT="${tmp_output}" python3 scripts/release/read_release.py \
+              --base-sha "${PR_BASE_SHA}" \
+              --head-sha "${PR_HEAD_SHA}"
+            # shellcheck disable=SC1090
+            . "${tmp_output}"
+            rm -f "${tmp_output}"
+            GITHUB_OUTPUT="${original_output}"
+            web_patch_revision="${patcher_image_tag##*-subpath.}"
+            web_compat_tag="${patcher_image_tag}"
+            combined_tag="${patcher_combined_tag}"
+            git_tag="${patcher_git_tag}"
+            create_tag="true"
+          else
+            release_patcher="true"
+            patcher_version="${INPUT_PATCHER_VERSION#v}"
+            web_ref="${INPUT_WEB_REF}"
+            if [[ "${web_ref}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              web_ref="v${web_ref}"
+            fi
+            if ! [[ "${patcher_version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "patcher_version must look like 0.4.0" >&2
+              exit 1
+            fi
+            if ! [[ "${web_ref}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "owncloud_web_ref must look like v12.3.3" >&2
+              exit 1
+            fi
+            if ! [[ "${INPUT_WEB_PATCH_REVISION}" =~ ^[0-9]+$ ]]; then
+              echo "web_patch_revision must be numeric" >&2
+              exit 1
+            fi
+            web_patch_revision="${INPUT_WEB_PATCH_REVISION}"
+            git_tag="patcher/v${patcher_version}-web-${web_ref}-subpath.${web_patch_revision}"
+            web_repo="${INPUT_WEB_REPO}"
+            create_tag="true"
+          fi
+
+          if [ "${EVENT_NAME}" != "pull_request" ]; then
+            web_compat_tag="web-${web_ref}-subpath.${web_patch_revision}"
+            combined_tag="${patcher_version}-${web_compat_tag}"
+          fi
+
+          {
+            echo "patcher_version=${patcher_version}"
+            echo "web_ref=${web_ref}"
+            echo "web_repo=${web_repo}"
+            echo "web_patch_revision=${web_patch_revision}"
+            echo "web_compat_tag=${web_compat_tag}"
+            echo "combined_tag=${combined_tag}"
+            echo "git_tag=${git_tag}"
+            echo "create_tag=${create_tag}"
+            echo "release_patcher=${release_patcher}"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Stop when patcher release is disabled
+        if: steps.vars.outputs.release_patcher != 'true'
+        run: |
+          set -euo pipefail
+          echo "release.patcher=false in release.yaml. Skipping patcher release."
+
+      - name: Create and push release tag
+        if: steps.vars.outputs.release_patcher == 'true' && steps.vars.outputs.create_tag == 'true'
+        env:
+          GIT_TAG: ${{ steps.vars.outputs.git_tag }}
+        run: |
+          set -euo pipefail
+          git fetch --force --tags origin
+          if git rev-parse -q --verify "refs/tags/${GIT_TAG}" >/dev/null; then
+            tagged_commit="$(git rev-list -n 1 "${GIT_TAG}")"
+            if [ "${tagged_commit}" != "${GITHUB_SHA}" ]; then
+              echo "Refusing to reuse ${GIT_TAG}; it points to ${tagged_commit}, not ${GITHUB_SHA}" >&2
+              exit 1
+            fi
+            echo "Tag already exists on this commit: ${GIT_TAG}"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "${GIT_TAG}" "${GITHUB_SHA}" -m "Release ${GIT_TAG}"
+          git push origin "refs/tags/${GIT_TAG}"
+
+      - name: Run patcher unit tests
+        if: steps.vars.outputs.release_patcher == 'true'
+        run: python3 -m unittest images/web-assets-patcher/tests/test_patcher.py
+
+      - name: Set up QEMU
+        if: steps.vars.outputs.release_patcher == 'true'
+        uses: docker/setup-qemu-action@v4
+
+      - name: Set up Docker Buildx
+        if: steps.vars.outputs.release_patcher == 'true'
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GHCR
+        if: steps.vars.outputs.release_patcher == 'true'
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Normalize image name
+        if: steps.vars.outputs.release_patcher == 'true'
+        id: image
+        env:
+          GHCR_OWNER: ${{ github.repository_owner }}
+        run: |
+          set -euo pipefail
+          owner="${GHCR_OWNER,,}"
+          echo "name=ghcr.io/${owner}/ocis-web-assets-patcher" >> "${GITHUB_OUTPUT}"
+
+      - name: Generate Docker metadata
+        if: steps.vars.outputs.release_patcher == 'true'
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ steps.image.outputs.name }}
+          tags: |
+            type=raw,value=${{ steps.vars.outputs.patcher_version }}
+            type=raw,value=v${{ steps.vars.outputs.patcher_version }}
+            type=raw,value=${{ steps.vars.outputs.web_compat_tag }}
+            type=raw,value=${{ steps.vars.outputs.combined_tag }}
+
+      - name: Build and push patcher image
+        if: steps.vars.outputs.release_patcher == 'true'
+        uses: docker/build-push-action@v7
+        with:
+          context: ./images/web-assets-patcher
+          file: ./images/web-assets-patcher/Dockerfile
+          pull: true
+          push: true
+          platforms: linux/amd64,linux/arm64
+          build-args: |
+            OWNCLOUD_WEB_REPO=${{ steps.vars.outputs.web_repo }}
+            OWNCLOUD_WEB_REF=${{ steps.vars.outputs.web_ref }}
+            BUILD_DATE=${{ github.event.repository.updated_at }}
+            VCS_REF=${{ github.sha }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=web-assets-patcher
+          cache-to: type=gha,mode=max,scope=web-assets-patcher
+          provenance: mode=max
+          sbom: true
+
+      - name: Write release notes
+        if: steps.vars.outputs.release_patcher == 'true'
+        run: |
+          set -euo pipefail
+          cat > release-notes.md <<EOF
+          ownCloud Web assets patcher image.
+
+          - Patcher version: \`${{ steps.vars.outputs.patcher_version }}\`
+          - Upstream ownCloud Web ref: \`${{ steps.vars.outputs.web_ref }}\`
+          - Web compatibility tag: \`${{ steps.vars.outputs.web_compat_tag }}\`
+          - Image: \`${{ steps.image.outputs.name }}:${{ steps.vars.outputs.web_compat_tag }}\`
+
+          The SemVer tag describes the patcher implementation. The \`web-...-subpath.N\` tag describes the upstream ownCloud Web bundle compatibility.
+          EOF
+
+      - name: Create or update GitHub Release
+        if: steps.vars.outputs.release_patcher == 'true'
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ steps.vars.outputs.git_tag }}
+          name: Web assets patcher ${{ steps.vars.outputs.patcher_version }}
+          body_path: release-notes.md
+          generate_release_notes: false

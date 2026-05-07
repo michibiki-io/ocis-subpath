@@ -1,0 +1,172 @@
+name: Track upstream releases
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 2 * * 1"
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  track:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+        with:
+          token: ${{ secrets.UPSTREAM_TRACKING_TOKEN || secrets.GITHUB_TOKEN }}
+
+      - name: Inspect upstream releases
+        id: upstream
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const ocis = await github.rest.repos.getLatestRelease({ owner: 'owncloud', repo: 'ocis' })
+            const web = await github.rest.repos.getLatestRelease({ owner: 'owncloud', repo: 'web' })
+
+            core.setOutput('ocis_ref', ocis.data.tag_name)
+            core.setOutput('web_ref', web.data.tag_name)
+
+      - name: Update defaults for draft PR
+        id: update
+        run: |
+          set -euo pipefail
+          python3 scripts/release/update_upstream_defaults.py \
+            --ocis-ref "${{ steps.upstream.outputs.ocis_ref }}" \
+            --web-ref "${{ steps.upstream.outputs.web_ref }}"
+
+      - name: Stop when upstream has not moved
+        if: steps.update.outputs.changed != 'true'
+        run: |
+          set -euo pipefail
+          echo "No upstream movement detected."
+
+      - name: Validate updated defaults
+        if: steps.update.outputs.changed == 'true'
+        run: |
+          set -euo pipefail
+          python3 -m unittest images/web-assets-patcher/tests/test_patcher.py
+          python3 -m unittest scripts/release/tests/test_update_upstream_defaults.py
+          helm lint charts/ocis-subpath
+          helm template ocis charts/ocis-subpath >/tmp/ocis-subpath-template.yaml
+
+      - name: Require PR-capable token
+        if: steps.update.outputs.changed == 'true'
+        env:
+          UPSTREAM_TRACKING_TOKEN: ${{ secrets.UPSTREAM_TRACKING_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${UPSTREAM_TRACKING_TOKEN}" ]; then
+            echo "UPSTREAM_TRACKING_TOKEN is required so the generated draft PR can trigger pull_request CI/E2E." >&2
+            echo "GITHUB_TOKEN-created PRs may not trigger downstream workflows." >&2
+            exit 1
+          fi
+
+      - name: Create tracking issue
+        if: steps.update.outputs.changed == 'true'
+        id: issue
+        uses: actions/github-script@v8
+        env:
+          LATEST_OCIS_REF: ${{ steps.upstream.outputs.ocis_ref }}
+          LATEST_WEB_REF: ${{ steps.upstream.outputs.web_ref }}
+          CURRENT_OCIS_REF: ${{ steps.update.outputs.current_ocis_ref }}
+          CURRENT_WEB_REF: ${{ steps.update.outputs.current_web_ref }}
+          NEXT_OCIS_TAG: ${{ steps.update.outputs.next_ocis_tag }}
+          NEXT_WEB_TAG: ${{ steps.update.outputs.next_web_tag }}
+        with:
+          script: |
+            const title = `Track upstream oCIS ${process.env.LATEST_OCIS_REF} / Web ${process.env.LATEST_WEB_REF}`
+            const labels = [
+              {
+                name: 'upstream-tracking',
+                color: '1f6feb',
+                description: 'Tracks upstream ownCloud release movement',
+              },
+              {
+                name: 'release-on-merge',
+                color: 'd73a4a',
+                description: 'Publishes release artifacts when the PR is merged',
+              },
+            ]
+            const body = [
+              'Upstream releases have moved. A draft PR will update defaults and run CI/E2E before a human review.',
+              '',
+              '| Component | Current default | Latest upstream | Proposed image tag |',
+              '| --- | --- | --- | --- |',
+              `| oCIS | \`${process.env.CURRENT_OCIS_REF || 'unknown'}\` | \`${process.env.LATEST_OCIS_REF}\` | \`${process.env.NEXT_OCIS_TAG}\` |`,
+              `| ownCloud Web | \`${process.env.CURRENT_WEB_REF || 'unknown'}\` | \`${process.env.LATEST_WEB_REF}\` | \`${process.env.NEXT_WEB_TAG}\` |`,
+              '',
+              'The generated draft PR carries `release-on-merge`; merging it publishes release artifacts.',
+            ].join('\n')
+
+            for (const label of labels) {
+              try {
+                await github.rest.issues.getLabel({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  name: label.name,
+                })
+              } catch (error) {
+                if (error.status !== 404) throw error
+                await github.rest.issues.createLabel({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  name: label.name,
+                  color: label.color,
+                  description: label.description,
+                })
+              }
+            }
+
+            const { data: issues } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'upstream-tracking',
+              per_page: 100,
+            })
+
+            const existing = issues.find(issue => issue.title === title)
+            if (existing) {
+              core.setOutput('number', String(existing.number))
+              core.info(`Tracking issue already exists: #${existing.number}`)
+              return
+            }
+
+            const created = await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title,
+              body,
+              labels: labels.map(label => label.name),
+            })
+            core.setOutput('number', String(created.data.number))
+
+      - name: Create draft upstream PR
+        if: steps.update.outputs.changed == 'true'
+        uses: peter-evans/create-pull-request@v7
+        with:
+          token: ${{ secrets.UPSTREAM_TRACKING_TOKEN }}
+          branch: automation/upstream-${{ steps.upstream.outputs.ocis_ref }}-${{ steps.upstream.outputs.web_ref }}
+          delete-branch: true
+          draft: true
+          title: "chore(upstream): track oCIS ${{ steps.upstream.outputs.ocis_ref }} and Web ${{ steps.upstream.outputs.web_ref }}"
+          commit-message: "chore(upstream): track oCIS ${{ steps.upstream.outputs.ocis_ref }} and Web ${{ steps.upstream.outputs.web_ref }}"
+          labels: |
+            upstream-tracking
+            release-on-merge
+          body: |
+            Updates defaults for upstream releases.
+
+            - oCIS: `${{ steps.update.outputs.current_ocis_ref }}` -> `${{ steps.upstream.outputs.ocis_ref }}`
+            - ownCloud Web: `${{ steps.update.outputs.current_web_ref }}` -> `${{ steps.upstream.outputs.web_ref }}`
+            - backend image tag: `${{ steps.update.outputs.next_ocis_tag }}`
+            - patcher image tag: `${{ steps.update.outputs.next_web_tag }}`
+            - tracking issue: #${{ steps.issue.outputs.number }}
+
+            This PR is intentionally draft. Confirm that the backend patch applies, the patcher image builds against the new Web ref, and Helm-on-kind E2E passes before marking it ready for review.
+
+            This PR has `release-on-merge` by default. Merging it publishes the backend image, patcher image, and Helm chart from `release.yaml`.

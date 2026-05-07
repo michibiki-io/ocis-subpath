@@ -1,0 +1,210 @@
+name: Release oCIS backend
+
+on:
+  pull_request:
+    types:
+      - closed
+  workflow_dispatch:
+    inputs:
+      ocis_ref:
+        description: "Upstream ownCloud oCIS ref to build, for example v8.0.1"
+        required: true
+        default: "v8.0.1"
+      patch_revision:
+        description: "Subpath patch revision for this upstream ref"
+        required: true
+        default: "1"
+      ocis_repo:
+        description: "Upstream oCIS repository"
+        required: true
+        default: "https://github.com/owncloud/ocis.git"
+
+permissions:
+  contents: write
+  packages: write
+
+concurrency:
+  group: release-ocis-backend-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    if: >-
+      github.event_name != 'pull_request' ||
+      (
+        github.event.pull_request.merged == true &&
+        github.event.pull_request.base.ref == 'main' &&
+        contains(github.event.pull_request.labels.*.name, 'release-on-merge')
+      )
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.merge_commit_sha || github.sha }}
+
+      - name: Resolve release variables
+        id: vars
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+          INPUT_OCIS_REF: ${{ inputs.ocis_ref }}
+          INPUT_PATCH_REVISION: ${{ inputs.patch_revision }}
+          INPUT_OCIS_REPO: ${{ inputs.ocis_repo }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.merge_commit_sha }}
+        run: |
+          set -euo pipefail
+
+          if [ "${EVENT_NAME}" = "pull_request" ]; then
+            original_output="${GITHUB_OUTPUT}"
+            tmp_output="$(mktemp)"
+            GITHUB_OUTPUT="${tmp_output}" python3 scripts/release/read_release.py \
+              --base-sha "${PR_BASE_SHA}" \
+              --head-sha "${PR_HEAD_SHA}"
+            # shellcheck disable=SC1090
+            . "${tmp_output}"
+            rm -f "${tmp_output}"
+            GITHUB_OUTPUT="${original_output}"
+            image_tag="${ocis_image_tag}"
+            patch_revision="${image_tag##*-subpath.}"
+            git_tag="${ocis_git_tag}"
+            create_tag="true"
+          else
+            release_ocis="true"
+            ocis_ref="${INPUT_OCIS_REF}"
+            if [[ "${ocis_ref}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              ocis_ref="v${ocis_ref}"
+            fi
+            if ! [[ "${ocis_ref}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "ocis_ref must look like v8.0.1" >&2
+              exit 1
+            fi
+            if ! [[ "${INPUT_PATCH_REVISION}" =~ ^[0-9]+$ ]]; then
+              echo "patch_revision must be numeric" >&2
+              exit 1
+            fi
+            image_tag="${ocis_ref#v}-subpath.${INPUT_PATCH_REVISION}"
+            git_tag="ocis/v${image_tag}"
+            patch_revision="${INPUT_PATCH_REVISION}"
+            ocis_repo="${INPUT_OCIS_REPO}"
+            create_tag="true"
+          fi
+
+          {
+            echo "ocis_ref=${ocis_ref}"
+            echo "ocis_repo=${ocis_repo}"
+            echo "patch_revision=${patch_revision}"
+            echo "image_tag=${image_tag}"
+            echo "git_tag=${git_tag}"
+            echo "create_tag=${create_tag}"
+            echo "release_ocis=${release_ocis}"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Stop when backend release is disabled
+        if: steps.vars.outputs.release_ocis != 'true'
+        run: |
+          set -euo pipefail
+          echo "release.ocis=false in release.yaml. Skipping backend release."
+
+      - name: Create and push release tag
+        if: steps.vars.outputs.release_ocis == 'true' && steps.vars.outputs.create_tag == 'true'
+        env:
+          GIT_TAG: ${{ steps.vars.outputs.git_tag }}
+        run: |
+          set -euo pipefail
+          git fetch --force --tags origin
+          if git rev-parse -q --verify "refs/tags/${GIT_TAG}" >/dev/null; then
+            tagged_commit="$(git rev-list -n 1 "${GIT_TAG}")"
+            if [ "${tagged_commit}" != "${GITHUB_SHA}" ]; then
+              echo "Refusing to reuse ${GIT_TAG}; it points to ${tagged_commit}, not ${GITHUB_SHA}" >&2
+              exit 1
+            fi
+            echo "Tag already exists on this commit: ${GIT_TAG}"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "${GIT_TAG}" "${GITHUB_SHA}" -m "Release ${GIT_TAG}"
+          git push origin "refs/tags/${GIT_TAG}"
+
+      - name: Set up QEMU
+        if: steps.vars.outputs.release_ocis == 'true'
+        uses: docker/setup-qemu-action@v4
+
+      - name: Set up Docker Buildx
+        if: steps.vars.outputs.release_ocis == 'true'
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GHCR
+        if: steps.vars.outputs.release_ocis == 'true'
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Normalize image name
+        if: steps.vars.outputs.release_ocis == 'true'
+        id: image
+        env:
+          GHCR_OWNER: ${{ github.repository_owner }}
+        run: |
+          set -euo pipefail
+          owner="${GHCR_OWNER,,}"
+          echo "name=ghcr.io/${owner}/ocis-subpath" >> "${GITHUB_OUTPUT}"
+
+      - name: Generate Docker metadata
+        if: steps.vars.outputs.release_ocis == 'true'
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ steps.image.outputs.name }}
+          tags: |
+            type=raw,value=${{ steps.vars.outputs.image_tag }}
+            type=raw,value=v${{ steps.vars.outputs.image_tag }}
+
+      - name: Build and push patched oCIS image
+        if: steps.vars.outputs.release_ocis == 'true'
+        uses: docker/build-push-action@v7
+        with:
+          context: ./images/ocis-subpath
+          file: ./images/ocis-subpath/Dockerfile
+          pull: true
+          push: true
+          platforms: linux/amd64,linux/arm64
+          build-args: |
+            OCIS_REPO=${{ steps.vars.outputs.ocis_repo }}
+            OCIS_REF=${{ steps.vars.outputs.ocis_ref }}
+            BUILD_DATE=${{ github.event.repository.updated_at }}
+            VCS_REF=${{ github.sha }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=ocis-backend
+          cache-to: type=gha,mode=max,scope=ocis-backend
+          provenance: mode=max
+          sbom: true
+
+      - name: Write release notes
+        if: steps.vars.outputs.release_ocis == 'true'
+        run: |
+          set -euo pipefail
+          cat > release-notes.md <<EOF
+          Patched oCIS backend image.
+
+          - Upstream oCIS ref: \`${{ steps.vars.outputs.ocis_ref }}\`
+          - Subpath patch revision: \`${{ steps.vars.outputs.patch_revision }}\`
+          - Image: \`${{ steps.image.outputs.name }}:${{ steps.vars.outputs.image_tag }}\`
+
+          This release is intentionally tied to the upstream oCIS version. It should be consumed by the Helm chart through \`image.tag\`.
+          EOF
+
+      - name: Create or update GitHub Release
+        if: steps.vars.outputs.release_ocis == 'true'
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ steps.vars.outputs.git_tag }}
+          name: oCIS backend ${{ steps.vars.outputs.image_tag }}
+          body_path: release-notes.md
+          generate_release_notes: false

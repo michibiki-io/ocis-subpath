@@ -1,0 +1,172 @@
+replicaCount: 1
+
+image:
+  repository: ghcr.io/michibiki-io/ocis-subpath
+  tag: "8.0.1-subpath.1"
+  pullPolicy: IfNotPresent
+
+webAssetsPatcher:
+  enabled: true
+  image:
+    repository: ghcr.io/michibiki-io/ocis-web-assets-patcher
+    tag: "web-v12.3.3-subpath.1"
+    pullPolicy: IfNotPresent
+  srcDist: /input/dist
+  dstDist: /web-assets/dist
+  configOut: /web-config/config.json
+  oidcClientId: web
+  oidcScope: "openid profile email"
+  themePath: /themes/owncloud/theme.json
+  apps:
+    - files
+    - preview
+    - pdf-viewer
+    - search
+    - text-editor
+    - external
+    - admin-settings
+    - epub-reader
+  options:
+    contextHelpersReadMore: true
+  extraConfig: {}
+  patchAbsoluteUrls: false
+
+ocis:
+  baseUrl: "https://example.com"
+  subpath: "/ocis"
+  publicUrlOverride: ""
+  logLevel: info
+  insecure: false
+  proxyTls: false
+  oidc:
+    issuer: ""
+    rewriteWellknown: true
+    metadataUrl: ""
+    authority: ""
+  csp:
+    enabled: true
+    directives:
+      child-src:
+        - "'self'"
+      connect-src:
+        - "'self'"
+        - "blob:"
+        - "https://raw.githubusercontent.com/owncloud/awesome-ocis/"
+      default-src:
+        - "'none'"
+      font-src:
+        - "'self'"
+        - "data:"
+      frame-ancestors:
+        - "'self'"
+      frame-src:
+        - "'self'"
+        - "blob:"
+        - "https://embed.diagrams.net/"
+      img-src:
+        - "'self'"
+        - "data:"
+        - "blob:"
+        - "https://raw.githubusercontent.com/owncloud/awesome-ocis/"
+      manifest-src:
+        - "'self'"
+      media-src:
+        - "'self'"
+      object-src:
+        - "'self'"
+        - "blob:"
+      script-src:
+        - "'self'"
+        - "'unsafe-inline'"
+      style-src:
+        - "'self'"
+        - "'unsafe-inline'"
+  env:
+    OCIS_CONFIG_DIR: /etc/ocis
+    OCIS_BASE_DATA_PATH: /var/lib/ocis
+    IDP_HTTP_ADDR: 0.0.0.0:9130
+    FRONTEND_HTTP_ADDR: 0.0.0.0:9140
+  existingSecret: ""
+  generatedSecrets:
+    enabled: false
+  secrets:
+    adminPasswordKey: admin-password
+    jwtSecretKey: jwt-secret
+    transferSecretKey: transfer-secret
+    machineAuthApiKeyKey: machine-auth-api-key
+
+persistence:
+  data:
+    enabled: true
+    size: 10Gi
+    storageClass: ""
+    accessModes:
+      - ReadWriteOnce
+  config:
+    enabled: true
+    size: 1Gi
+    storageClass: ""
+    accessModes:
+      - ReadWriteOnce
+  webAssets:
+    enabled: false
+    size: 1Gi
+    storageClass: ""
+    accessModes:
+      - ReadWriteOnce
+
+service:
+  type: ClusterIP
+  port: 9200
+
+ingress:
+  enabled: false
+  entryPoints:
+    - websecure
+  annotations: {}
+  hosts:
+    - host: example.com
+  tls: {}
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+podAnnotations: {}
+podLabels: {}
+hostAliases: []
+
+podSecurityContext:
+  runAsUser: 1000
+  runAsGroup: 1000
+  fsGroup: 1000
+  fsGroupChangePolicy: OnRootMismatch
+
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+
+resources: {}
+initResources: {}
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+livenessProbe:
+  enabled: true
+  initialDelaySeconds: 60
+  periodSeconds: 30
+  timeoutSeconds: 10
+
+readinessProbe:
+  enabled: true
+  initialDelaySeconds: 30
+  periodSeconds: 10
+  timeoutSeconds: 5
+
+command: []
+args: []
