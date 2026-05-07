@@ -223,7 +223,30 @@ async function enterFolderFromUi(page: Page, folderName: string) {
   await expect(page.locator('body')).toContainText(/new|upload|files/i, { timeout: 30_000 })
 }
 
-async function uploadFileFromUi(page: Page, fileName: string, mimeType: string, buffer: Buffer) {
+async function waitForUploadedDriveFile(
+  api: APIRequestContext,
+  driveId: string,
+  pathSegments: string[],
+  expectedBuffer: Buffer
+) {
+  const fileUrl = url(`/dav/spaces/${encodePath(driveId, ...pathSegments)}`)
+
+  await expect.poll(async () => {
+    const response = await api.get(fileUrl, { failOnStatusCode: false })
+    if (response.status() !== 200) {
+      return `status:${response.status()}`
+    }
+    return sha256(Buffer.from(await response.body()))
+  }, { timeout: 120_000 }).toBe(sha256(expectedBuffer))
+}
+
+async function uploadFileFromUi(
+  page: Page,
+  fileName: string,
+  mimeType: string,
+  buffer: Buffer,
+  verification?: { api: APIRequestContext; driveId: string; pathSegments: string[] }
+) {
   const base = new URL(`${baseUrl}/`)
   const baseApiPath = `${base.pathname.replace(/\/$/, '')}/dav/`
   const uploadCreated = page.waitForResponse((response) => {
@@ -231,14 +254,19 @@ async function uploadFileFromUi(page: Page, fileName: string, mimeType: string, 
     return (
       responseUrl.origin === base.origin &&
       responseUrl.pathname.startsWith(baseApiPath) &&
-      response.request().method() === 'POST' &&
-      response.status() === 201
+      ['POST', 'PUT', 'PATCH'].includes(response.request().method()) &&
+      [200, 201, 204].includes(response.status())
     )
   }, { timeout: 120_000 })
+    .catch(() => undefined)
 
   await page.locator('#upload-menu-btn').click()
   await page.locator('#files-file-upload-input').setInputFiles({ name: fileName, mimeType, buffer })
-  await uploadCreated
+  if (verification) {
+    await waitForUploadedDriveFile(verification.api, verification.driveId, verification.pathSegments, buffer)
+  } else {
+    expect(await uploadCreated, `upload response for ${fileName}`).toBeTruthy()
+  }
   await expect(page.getByText(/Unknown error/i)).toHaveCount(0, { timeout: 30_000 })
   await page.reload({ waitUntil: 'domcontentloaded' })
   await waitForStableLoad(page)
@@ -1061,10 +1089,14 @@ test('Logged-in file workflow works from a subpath', async ({ browser }) => {
     await login(page)
     await createFolderFromUi(page, folderName)
     await enterFolderFromUi(page, folderName)
-    await uploadFileFromUi(page, uiUploadPdfName, 'application/pdf', samplePdf)
-
     api = await authenticatedApi(page)
     const driveId = await personalDriveId(api)
+    await uploadFileFromUi(page, uiUploadPdfName, 'application/pdf', samplePdf, {
+      api,
+      driveId,
+      pathSegments: [folderName, uiUploadPdfName]
+    })
+
     await uploadVideoViaTus(api, driveId, folderName, original)
     await page.reload({ waitUntil: 'domcontentloaded' })
     await waitForStableLoad(page)

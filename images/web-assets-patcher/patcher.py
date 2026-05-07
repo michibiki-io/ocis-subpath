@@ -64,12 +64,7 @@ SIGNED_URL_HASH_REPLACEMENT = (
     'return o.searchParams.set("OC-Algo","PBKDF2/".concat(this.ITERATION_COUNT,"-SHA512")),'
     'o.searchParams.set("OC-Signature",i),o.toString()}'
 )
-GRAPH_DRIVE_SERVER_URL_PATTERN = 'const sr=t=>new URL(t.webUrl).origin'
-GRAPH_DRIVE_SERVER_URL_REPLACEMENT = (
-    'const sr=t=>{const e=new URL(t.webUrl),'
-    'n=new URL(document.baseURI).pathname.replace(/\\/$/,"");'
-    'return e.origin+(n&&n!=="/"?n:"")}'
-)
+GRAPH_DRIVE_SERVER_URL_PATTERN = re.compile(r"(?P<name>[A-Za-z_$][A-Za-z0-9_$]*)=t=>new URL\(t\.webUrl\)\.origin")
 
 
 class PatcherError(RuntimeError):
@@ -255,10 +250,18 @@ def patch_signed_url_hash_path(content: str, subpath: str) -> tuple[str, int]:
 def patch_graph_drive_server_url(content: str, subpath: str) -> tuple[str, int]:
     if subpath == "/":
         return content, 0
-    return (
-        content.replace(GRAPH_DRIVE_SERVER_URL_PATTERN, GRAPH_DRIVE_SERVER_URL_REPLACEMENT),
-        content.count(GRAPH_DRIVE_SERVER_URL_PATTERN),
-    )
+
+    def replacement(match: re.Match[str]) -> str:
+        name = match.group("name")
+        return (
+            f"{name}=t=>{{"
+            "const __ocisDriveWebUrl=new URL(t.webUrl),"
+            '__ocisBasePath=new URL(document.baseURI).pathname.replace(/\\/$/,"");'
+            'return __ocisDriveWebUrl.origin+(__ocisBasePath&&__ocisBasePath!=="/"?__ocisBasePath:"")'
+            "}"
+        )
+
+    return GRAPH_DRIVE_SERVER_URL_PATTERN.subn(replacement, content)
 
 
 def remove_precompressed_variants(path: Path) -> list[str]:

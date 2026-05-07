@@ -193,13 +193,14 @@ class PatcherTests(unittest.TestCase):
         self.assertIn("o.toString()", patched)
 
     def test_patch_graph_drive_server_url_keeps_subpath(self):
-        source = 'const sr=t=>new URL(t.webUrl).origin,O0=({axiosClient:t,config:e})=>{}'
+        source = 'const or=t=>new URL(t.webUrl).origin,O0=({axiosClient:t,config:e})=>{}'
 
         patched, count = patch_graph_drive_server_url(source, "/ocis")
 
         self.assertEqual(count, 1)
         self.assertIn("new URL(document.baseURI).pathname", patched)
-        self.assertIn('e.origin+(n&&n!=="/"?n:"")', patched)
+        self.assertIn('or=t=>{', patched)
+        self.assertIn('__ocisDriveWebUrl.origin+(__ocisBasePath&&__ocisBasePath!=="/"?__ocisBasePath:"")', patched)
 
     def test_requires_index_and_js(self):
         with tempfile.TemporaryDirectory() as tmpdir:
