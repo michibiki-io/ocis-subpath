@@ -1,0 +1,35 @@
+name: helm-e2e
+
+on:
+  pull_request:
+    paths:
+      - "charts/ocis-subpath/**"
+      - "images/ocis-subpath/**"
+      - "images/web-assets-patcher/**"
+      - "scripts/build-patcher-image.sh"
+      - "scripts/e2e/**"
+      - "Makefile"
+      - ".github/workflows/helm-e2e.yml"
+
+jobs:
+  helm-e2e:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: azure/setup-kubectl@v4
+        with:
+          version: v1.33.1
+
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.18.0
+
+      - uses: engineerd/setup-kind@v0.6.2
+        with:
+          version: v0.30.0
+
+      - name: Run Helm chart e2e on kind
+        run: |
+          KEEP_ON_FAILURE=false make e2e-helm-kind

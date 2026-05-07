@@ -1,0 +1,70 @@
+http:
+  routers:
+    ocis-wellknown:
+      entryPoints:
+        - websecure
+      rule: PathPrefix(`__SUBPATH__/.well-known`)
+      service: ocis-idp
+      tls: {}
+      priority: 200
+
+    ocis-subpath-idp:
+      entryPoints:
+        - websecure
+      rule: PathPrefix(`__SUBPATH__/signin`) || PathPrefix(`__SUBPATH__/konnect`)
+      service: ocis-idp
+      tls: {}
+      priority: 205
+
+    ocis-web:
+      entryPoints:
+        - websecure
+      rule: PathPrefix(`__SUBPATH__`)
+      service: ocis-proxy
+      tls: {}
+      priority: 100
+
+    ocis-subpath-api:
+      entryPoints:
+        - websecure
+      rule: PathPrefix(`__SUBPATH__/graph`) || PathPrefix(`__SUBPATH__/api`) || PathPrefix(`__SUBPATH__/dav`) || PathPrefix(`__SUBPATH__/data`) || PathPrefix(`__SUBPATH__/remote.php`) || PathPrefix(`__SUBPATH__/ocs`) || PathPrefix(`__SUBPATH__/thumbnails`)
+      middlewares:
+        - strip-subpath-prefix
+      service: ocis-proxy
+      tls: {}
+      priority: 180
+
+    ocis-subpath-capabilities:
+      entryPoints:
+        - websecure
+      rule: Path(`__SUBPATH__/ocs/v2.php/cloud/capabilities`)
+      middlewares:
+        - strip-subpath-prefix
+        - drop-auth-header
+      service: ocis-frontend
+      tls: {}
+      priority: 190
+
+  middlewares:
+    strip-subpath-prefix:
+      stripPrefix:
+        prefixes:
+          - __SUBPATH__
+    drop-auth-header:
+      headers:
+        customRequestHeaders:
+          Authorization: ""
+
+  services:
+    ocis-proxy:
+      loadBalancer:
+        servers:
+          - url: http://ocis:9200
+    ocis-idp:
+      loadBalancer:
+        servers:
+          - url: http://ocis:9130
+    ocis-frontend:
+      loadBalancer:
+        servers:
+          - url: http://ocis:9140

@@ -1,0 +1,56 @@
+{{- if .Values.persistence.data.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "ocis-subpath.fullname" . }}-data
+  labels:
+    {{- include "ocis-subpath.labels" . | nindent 4 }}
+    app.kubernetes.io/component: data
+spec:
+  accessModes:
+    {{- toYaml .Values.persistence.data.accessModes | nindent 4 }}
+  resources:
+    requests:
+      storage: {{ .Values.persistence.data.size }}
+  {{- if .Values.persistence.data.storageClass }}
+  storageClassName: {{ .Values.persistence.data.storageClass }}
+  {{- end }}
+---
+{{- end }}
+{{- if .Values.persistence.config.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "ocis-subpath.fullname" . }}-config
+  labels:
+    {{- include "ocis-subpath.labels" . | nindent 4 }}
+    app.kubernetes.io/component: config
+spec:
+  accessModes:
+    {{- toYaml .Values.persistence.config.accessModes | nindent 4 }}
+  resources:
+    requests:
+      storage: {{ .Values.persistence.config.size }}
+  {{- if .Values.persistence.config.storageClass }}
+  storageClassName: {{ .Values.persistence.config.storageClass }}
+  {{- end }}
+---
+{{- end }}
+{{- if .Values.persistence.webAssets.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "ocis-subpath.fullname" . }}-web-assets
+  labels:
+    {{- include "ocis-subpath.labels" . | nindent 4 }}
+    app.kubernetes.io/component: web-assets
+spec:
+  accessModes:
+    {{- toYaml .Values.persistence.webAssets.accessModes | nindent 4 }}
+  resources:
+    requests:
+      storage: {{ .Values.persistence.webAssets.size }}
+  {{- if .Values.persistence.webAssets.storageClass }}
+  storageClassName: {{ .Values.persistence.webAssets.storageClass }}
+  {{- end }}
+{{- end }}

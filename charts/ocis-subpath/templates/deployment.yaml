@@ -1,0 +1,247 @@
+{{- $csp := .Values.ocis.csp | default dict -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "ocis-subpath.fullname" . }}
+  labels:
+    {{- include "ocis-subpath.labels" . | nindent 4 }}
+    app.kubernetes.io/component: app
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "ocis-subpath.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "ocis-subpath.selectorLabels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- if or .Values.podAnnotations ($csp.enabled | default false) }}
+      annotations:
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+        {{- if ($csp.enabled | default false) }}
+        checksum/csp-config: {{ toYaml ($csp.directives | default dict) | sha256sum }}
+        {{- end }}
+      {{- end }}
+    spec:
+      serviceAccountName: {{ include "ocis-subpath.serviceAccountName" . }}
+      {{- with .Values.hostAliases }}
+      hostAliases:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      {{- if .Values.webAssetsPatcher.enabled }}
+      initContainers:
+        - name: adapt-web-assets
+          image: {{ printf "%s:%s" .Values.webAssetsPatcher.image.repository .Values.webAssetsPatcher.image.tag }}
+          imagePullPolicy: {{ .Values.webAssetsPatcher.image.pullPolicy }}
+          env:
+            - name: SRC_DIST
+              value: {{ .Values.webAssetsPatcher.srcDist | quote }}
+            - name: DST_DIST
+              value: {{ .Values.webAssetsPatcher.dstDist | quote }}
+            - name: WEB_CONFIG_OUT
+              value: {{ .Values.webAssetsPatcher.configOut | quote }}
+            - name: BASE_URL
+              value: {{ regexReplaceAll "/+$" .Values.ocis.baseUrl "" | quote }}
+            - name: SUBPATH
+              value: {{ include "ocis-subpath.normalizedSubpath" . | trim | quote }}
+            - name: PUBLIC_URL
+              value: {{ include "ocis-subpath.publicUrl" . | quote }}
+            - name: OIDC_AUTHORITY
+              value: {{ include "ocis-subpath.oidcAuthority" . | quote }}
+            - name: OIDC_METADATA_URL
+              value: {{ include "ocis-subpath.oidcMetadataUrl" . | quote }}
+            - name: OIDC_CLIENT_ID
+              value: {{ .Values.webAssetsPatcher.oidcClientId | quote }}
+            - name: OIDC_SCOPE
+              value: {{ .Values.webAssetsPatcher.oidcScope | quote }}
+            - name: WEB_APPS_JSON
+              value: {{ toJson .Values.webAssetsPatcher.apps | quote }}
+            - name: WEB_OPTIONS_JSON
+              value: {{ toJson .Values.webAssetsPatcher.options | quote }}
+            - name: WEB_EXTRA_CONFIG_JSON
+              value: {{ toJson .Values.webAssetsPatcher.extraConfig | quote }}
+            - name: PATCH_ABSOLUTE_URLS
+              value: {{ ternary "true" "false" .Values.webAssetsPatcher.patchAbsoluteUrls | quote }}
+          volumeMounts:
+            - name: web-assets
+              mountPath: /web-assets
+            - name: web-config
+              mountPath: /web-config
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          resources:
+            {{- toYaml .Values.initResources | nindent 12 }}
+      {{- end }}
+      containers:
+        - name: ocis
+          image: {{ printf "%s:%s" .Values.image.repository .Values.image.tag }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{- if .Values.command }}
+          command:
+            {{- toYaml .Values.command | nindent 12 }}
+          {{- else }}
+          command:
+            - sh
+            - -ec
+            - ocis init || true; exec ocis server
+          {{- end }}
+          {{- if .Values.args }}
+          args:
+            {{- toYaml .Values.args | nindent 12 }}
+          {{- end }}
+          ports:
+            - name: http
+              containerPort: 9200
+              protocol: TCP
+            - name: idp
+              containerPort: 9130
+              protocol: TCP
+            - name: frontend
+              containerPort: 9140
+              protocol: TCP
+          env:
+            - name: OCIS_URL
+              value: {{ include "ocis-subpath.publicUrl" . | quote }}
+            - name: WEB_HTTP_ROOT
+              value: {{ include "ocis-subpath.normalizedSubpath" . | trim | quote }}
+            - name: IDP_URI_BASE_PATH
+              value: {{ include "ocis-subpath.normalizedSubpath" . | trim | quote }}
+            - name: PROXY_TLS
+              value: {{ ternary "true" "false" .Values.ocis.proxyTls | quote }}
+            - name: OCIS_INSECURE
+              value: {{ ternary "true" "false" .Values.ocis.insecure | quote }}
+            - name: WEB_ASSET_CORE_PATH
+              value: /web-assets/dist
+            - name: WEB_UI_CONFIG_FILE
+              value: /web-config/config.json
+            - name: WEB_UI_CONFIG_SERVER
+              value: {{ include "ocis-subpath.publicUrl" . | quote }}
+            - name: WEB_UI_THEME_SERVER
+              value: {{ include "ocis-subpath.publicUrl" . | quote }}
+            - name: WEB_OIDC_METADATA_URL
+              value: {{ include "ocis-subpath.oidcMetadataUrl" . | quote }}
+            - name: WEB_OIDC_AUTHORITY
+              value: {{ include "ocis-subpath.oidcAuthority" . | quote }}
+            - name: PROXY_OIDC_ISSUER
+              value: {{ include "ocis-subpath.oidcAuthority" . | quote }}
+            - name: OCIS_OIDC_ISSUER
+              value: {{ include "ocis-subpath.oidcAuthority" . | quote }}
+            - name: PROXY_OIDC_REWRITE_WELLKNOWN
+              value: {{ ternary "true" "false" .Values.ocis.oidc.rewriteWellknown | quote }}
+            {{- if ($csp.enabled | default false) }}
+            - name: PROXY_CSP_CONFIG_FILE_LOCATION
+              value: /etc/ocis-csp/csp.yaml
+            {{- end }}
+            - name: OCIS_LOG_LEVEL
+              value: {{ .Values.ocis.logLevel | quote }}
+            {{- $secretName := include "ocis-subpath.secretName" . | trim }}
+            {{- if $secretName }}
+            - name: IDM_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName }}
+                  key: {{ .Values.ocis.secrets.adminPasswordKey }}
+            - name: OCIS_JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName }}
+                  key: {{ .Values.ocis.secrets.jwtSecretKey }}
+            - name: OCIS_TRANSFER_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName }}
+                  key: {{ .Values.ocis.secrets.transferSecretKey }}
+            - name: OCIS_MACHINE_AUTH_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName }}
+                  key: {{ .Values.ocis.secrets.machineAuthApiKeyKey }}
+            {{- end }}
+            {{- range $key, $value := .Values.ocis.env }}
+            - name: {{ $key }}
+              value: {{ printf "%v" $value | quote }}
+            {{- end }}
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/ocis
+            - name: config
+              mountPath: /etc/ocis
+            - name: web-assets
+              mountPath: /web-assets
+            - name: web-config
+              mountPath: /web-config
+            {{- if ($csp.enabled | default false) }}
+            - name: csp-config
+              mountPath: /etc/ocis-csp
+              readOnly: true
+            {{- end }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          {{- if .Values.livenessProbe.enabled }}
+          livenessProbe:
+            httpGet:
+              path: {{ include "ocis-subpath.probePath" . | trim }}
+              port: http
+            initialDelaySeconds: {{ .Values.livenessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.livenessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.livenessProbe.timeoutSeconds }}
+          {{- end }}
+          {{- if .Values.readinessProbe.enabled }}
+          readinessProbe:
+            httpGet:
+              path: {{ include "ocis-subpath.probePath" . | trim }}
+              port: http
+            initialDelaySeconds: {{ .Values.readinessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.readinessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.readinessProbe.timeoutSeconds }}
+          {{- end }}
+      volumes:
+        - name: data
+          {{- if .Values.persistence.data.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "ocis-subpath.fullname" . }}-data
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        - name: config
+          {{- if .Values.persistence.config.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "ocis-subpath.fullname" . }}-config
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        - name: web-assets
+          {{- if .Values.persistence.webAssets.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "ocis-subpath.fullname" . }}-web-assets
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        - name: web-config
+          emptyDir: {}
+        {{- if ($csp.enabled | default false) }}
+        - name: csp-config
+          configMap:
+            name: {{ include "ocis-subpath.fullname" . }}-csp
+        {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
