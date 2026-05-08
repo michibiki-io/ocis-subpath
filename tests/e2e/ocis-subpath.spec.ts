@@ -33,7 +33,14 @@ const videoFileName = 'Big_Buck_Bunny_alt.webm'
 const zipFileName = 'Big_Buck_Bunny_alt.zip'
 const markdownFileName = 'commonmark-smoke.md'
 const samplePdfFileName = 'sample.pdf'
-const videoSourceUrl = 'https://commons.wikimedia.org/wiki/Special:Redirect/file/Big_Buck_Bunny_alt.webm'
+const videoSourceUrl =
+  process.env.E2E_VIDEO_SOURCE_URL || 'https://upload.wikimedia.org/wikipedia/commons/8/88/Big_Buck_Bunny_alt.webm'
+const videoFixtureUserAgent =
+  process.env.E2E_FIXTURE_USER_AGENT || 'ocis-subpath-e2e/1.0 (https://github.com/michibiki-io/ocis-subpath)'
+const videoDownloadAttempts = Math.max(
+  1,
+  Number.parseInt(process.env.E2E_FIXTURE_DOWNLOAD_ATTEMPTS || '5', 10) || 5
+)
 const resultsDir = path.resolve(__dirname, 'test-results')
 const markdownFixturePath = path.resolve(__dirname, 'fixtures/commonmark-smoke.md')
 const samplePdfFixturePath = path.resolve(__dirname, 'fixtures/sample.pdf')
@@ -196,17 +203,71 @@ function ensureStatus(response: { status(): number }, allowedStatuses: number[],
   expect(allowedStatuses, `${description} returned ${response.status()}`).toContain(response.status())
 }
 
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+function retryDelayMs(response: globalThis.Response | undefined, attempt: number): number {
+  const retryAfter = response?.headers.get('retry-after')
+  if (retryAfter) {
+    const retrySeconds = Number.parseInt(retryAfter, 10)
+    if (!Number.isNaN(retrySeconds)) {
+      return Math.min(retrySeconds * 1000, 60_000)
+    }
+
+    const retryDate = Date.parse(retryAfter)
+    if (!Number.isNaN(retryDate)) {
+      return Math.min(Math.max(retryDate - Date.now(), 0), 60_000)
+    }
+  }
+
+  return Math.min(2 ** (attempt - 1) * 1000, 30_000)
+}
+
+async function downloadVideoFixture(): Promise<Buffer> {
+  let lastError: Error | undefined
+
+  for (let attempt = 1; attempt <= videoDownloadAttempts; attempt++) {
+    let response: globalThis.Response | undefined
+    try {
+      response = await fetch(videoSourceUrl, {
+        headers: {
+          Accept: 'video/webm,*/*',
+          'User-Agent': videoFixtureUserAgent
+        }
+      })
+
+      if (response.ok) {
+        return Buffer.from(await response.arrayBuffer())
+      }
+
+      lastError = new Error(`Failed to download fixture: ${response.status} ${response.statusText}`)
+      const retryable = response.status === 429 || response.status >= 500
+      if (!retryable || attempt === videoDownloadAttempts) {
+        break
+      }
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error))
+      if (attempt === videoDownloadAttempts) {
+        break
+      }
+    }
+
+    await sleep(retryDelayMs(response, attempt))
+  }
+
+  throw lastError || new Error('Failed to download fixture')
+}
+
 async function ensureVideoFixture() {
   fs.mkdirSync(assetsDir, { recursive: true })
   if (fs.existsSync(videoFixturePath) && fs.statSync(videoFixturePath).size > 0) {
     return
   }
 
-  const response = await fetch(videoSourceUrl)
-  if (!response.ok) {
-    throw new Error(`Failed to download fixture: ${response.status} ${response.statusText}`)
-  }
-  fs.writeFileSync(videoFixturePath, Buffer.from(await response.arrayBuffer()))
+  const tmpPath = `${videoFixturePath}.${process.pid}.tmp`
+  fs.writeFileSync(tmpPath, await downloadVideoFixture())
+  fs.renameSync(tmpPath, videoFixturePath)
 }
 
 async function createFolderFromUi(page: Page, folderName: string) {

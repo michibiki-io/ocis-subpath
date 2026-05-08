@@ -8,6 +8,7 @@ on:
       - "images/web-assets-patcher/**"
       - "scripts/build-patcher-image.sh"
       - "scripts/e2e/**"
+      - "tests/e2e/**"
       - "Makefile"
       - ".github/workflows/helm-e2e.yml"
 
@@ -31,6 +32,9 @@ jobs:
           version: v0.30.0
 
       - name: Run Helm chart e2e on kind
+        env:
+          E2E_ASSET_CACHE_DIR: /workspace/.tmp/e2e-assets
+          E2E_FIXTURE_USER_AGENT: ocis-subpath-e2e/1.0 (https://github.com/michibiki-io/ocis-subpath)
         run: |
           KEEP_ON_FAILURE=false make e2e-helm-kind
 
