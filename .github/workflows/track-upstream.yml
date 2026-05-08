@@ -50,6 +50,7 @@ jobs:
           set -euo pipefail
           python3 -m unittest images/web-assets-patcher/tests/test_patcher.py
           python3 -m unittest scripts/release/tests/test_update_upstream_defaults.py
+          python3 -m unittest scripts/release/tests/test_read_release.py
           helm lint charts/ocis-subpath
           helm template ocis charts/ocis-subpath >/tmp/ocis-subpath-template.yaml
 

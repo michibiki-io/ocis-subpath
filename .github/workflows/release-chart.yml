@@ -48,6 +48,7 @@ jobs:
           set -euo pipefail
 
           if [ "${EVENT_NAME}" = "pull_request" ]; then
+            git fetch --force --tags origin
             original_output="${GITHUB_OUTPUT}"
             tmp_output="$(mktemp)"
             GITHUB_OUTPUT="${tmp_output}" python3 scripts/release/read_release.py \

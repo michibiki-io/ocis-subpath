@@ -95,6 +95,14 @@ def release_yaml_at(sha: str) -> dict[str, dict[str, str]] | None:
     return parse_release_yaml_text(text)
 
 
+def tag_exists(tag: str) -> bool:
+    try:
+        git("rev-parse", "-q", "--verify", f"refs/tags/{tag}")
+    except subprocess.CalledProcessError:
+        return False
+    return True
+
+
 def section_changed(
     current: dict[str, dict[str, str]],
     previous: dict[str, dict[str, str]] | None,
@@ -114,9 +122,12 @@ def auto_targets(
     current: dict[str, dict[str, str]],
     previous: dict[str, dict[str, str]] | None,
     files: list[str],
+    missing_tags: dict[str, bool] | None = None,
 ) -> dict[str, str]:
+    missing_tags = missing_tags or {}
     ocis = any(matches_any(path, ("images/ocis-subpath/",), ()) for path in files)
     ocis = ocis or section_changed(current, previous, "ocis", {"upstreamRef", "imageTag", "repo"})
+    ocis = ocis or missing_tags.get("ocis", False)
 
     patcher = any(
         matches_any(path, ("images/web-assets-patcher/",), ("scripts/build-patcher-image.sh",))
@@ -124,9 +135,11 @@ def auto_targets(
     )
     patcher = patcher or section_changed(current, previous, "web", {"upstreamRef", "repo"})
     patcher = patcher or section_changed(current, previous, "patcher", {"version", "imageTag"})
+    patcher = patcher or missing_tags.get("patcher", False)
 
     chart = any(matches_any(path, ("charts/ocis-subpath/",), ()) for path in files)
     chart = chart or section_changed(current, previous, "chart", {"version", "appVersion"})
+    chart = chart or missing_tags.get("chart", False)
 
     return {
         "release_ocis": "true" if ocis else "false",
@@ -140,6 +153,7 @@ def resolve_targets(
     previous: dict[str, dict[str, str]] | None,
     files: list[str],
     has_diff_context: bool,
+    missing_tags: dict[str, bool] | None = None,
 ) -> dict[str, str]:
     if not has_diff_context:
         return {
@@ -148,7 +162,7 @@ def resolve_targets(
             "release_chart": bool_value(current, "release", "chart", True),
         }
 
-    computed = auto_targets(current, previous, files)
+    computed = auto_targets(current, previous, files, missing_tags)
     overrides = {
         "release_ocis": bool_or_auto(current, "release", "ocis"),
         "release_patcher": bool_or_auto(current, "release", "patcher"),
@@ -177,12 +191,20 @@ def main() -> int:
     data = parse_release_yaml(Path(args.file))
     files = changed_files(args.base_sha, args.head_sha)
     previous = release_yaml_at(args.base_sha) if args.base_sha else None
-    targets = resolve_targets(data, previous, files, bool(args.base_sha and args.head_sha))
     ocis_image_tag = require(data, "ocis", "imageTag")
     patcher_version = require(data, "patcher", "version")
     patcher_image_tag = require(data, "patcher", "imageTag")
     chart_version = require(data, "chart", "version")
     chart_app_version = require(data, "chart", "appVersion")
+    ocis_git_tag = f"ocis/v{ocis_image_tag}"
+    patcher_git_tag = f"patcher/v{patcher_version}-{patcher_image_tag}"
+    chart_git_tag = f"chart/v{chart_version}"
+    missing_tags = {
+        "ocis": not tag_exists(ocis_git_tag),
+        "patcher": not tag_exists(patcher_git_tag),
+        "chart": not tag_exists(chart_git_tag),
+    }
+    targets = resolve_targets(data, previous, files, bool(args.base_sha and args.head_sha), missing_tags)
 
     write_outputs(
         {
@@ -190,16 +212,16 @@ def main() -> int:
             "ocis_ref": require(data, "ocis", "upstreamRef"),
             "ocis_repo": data.get("ocis", {}).get("repo", "https://github.com/owncloud/ocis.git"),
             "ocis_image_tag": ocis_image_tag,
-            "ocis_git_tag": f"ocis/v{ocis_image_tag}",
+            "ocis_git_tag": ocis_git_tag,
             "web_ref": require(data, "web", "upstreamRef"),
             "web_repo": data.get("web", {}).get("repo", "https://github.com/owncloud/web.git"),
             "patcher_version": patcher_version,
             "patcher_image_tag": patcher_image_tag,
             "patcher_combined_tag": f"{patcher_version}-{patcher_image_tag}",
-            "patcher_git_tag": f"patcher/v{patcher_version}-{patcher_image_tag}",
+            "patcher_git_tag": patcher_git_tag,
             "chart_version": chart_version,
             "chart_app_version": chart_app_version,
-            "chart_git_tag": f"chart/v{chart_version}",
+            "chart_git_tag": chart_git_tag,
         }
     )
     return 0

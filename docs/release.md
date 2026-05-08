@@ -17,6 +17,12 @@ The inferred release targets are:
 - patcher: `images/web-assets-patcher/**` or `scripts/build-patcher-image.sh` changed, or `release.yaml` changed `web.*` or `patcher.*`
 - chart: `charts/ocis-subpath/**` changed, or `release.yaml` changed `chart.*`
 
+For bootstrap releases, a target is also inferred when its expected release git tag does not exist yet:
+
+- backend: `ocis/v<ocis.imageTag>`
+- patcher: `patcher/v<patcher.version>-<patcher.imageTag>`
+- chart: `chart/v<chart.version>`
+
 Manual overrides are still supported when needed:
 
 ```yaml
@@ -113,6 +119,12 @@ The expected flow is:
 This keeps GHCR releases tied to validated commits. Automatic upstream release detection should not directly publish images because upstream oCIS or ownCloud Web can break the local patch set, frontend URL assumptions, or E2E behavior. Closing the draft PR discards the proposed version changes because they never reach `main`.
 
 The generated draft PR includes the `release-on-merge` label by default. Merging that PR is the explicit release approval. Remove the label before merging if the defaults should be merged without publishing release artifacts.
+
+## Bootstrap releases
+
+The first accepted `release-on-merge` PR should publish all three artifacts even when the upstream versions already match `release.yaml`. The release workflows fetch existing tags before resolving targets and treat missing expected tags as release targets. This means a small follow-up PR can bootstrap the initial artifacts as long as it has the `release-on-merge` label.
+
+After the bootstrap tags exist, unchanged release targets are skipped again unless their tracked files or `release.yaml` sections change.
 
 ## Patcher-only changes
 
