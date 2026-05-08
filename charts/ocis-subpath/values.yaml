@@ -41,10 +41,30 @@ ocis:
   oidc:
     external:
       enabled: false
+    # When external.enabled=true, issuer/authority and metadataUrl origins are
+    # added to ocis.csp.directives.connect-src automatically.
     issuer: ""
     rewriteWellknown: true
     metadataUrl: ""
     authority: ""
+  roleAssignment:
+    enabled: false
+    driver: oidc
+    # oCIS currently supports a single OIDC role claim. In auto mode, group
+    # mappings are used when present; otherwise user mappings are used.
+    mode: auto
+    groupClaim: groups
+    groupMapping:
+      admin: []
+      spaceadmin: []
+      user: []
+      guest: []
+    userClaim: preferred_username
+    userMapping:
+      admin: []
+      spaceadmin: []
+      user: []
+      guest: []
   csp:
     enabled: true
     directives:

@@ -1,6 +1,6 @@
 PYTHON ?= python3
 
-.PHONY: build-patcher helm-lint helm-template compose-up compose-down compose-reset e2e e2e-shell e2e-runner e2e-helm-kind clean
+.PHONY: build-patcher helm-lint helm-template helm-template-role-assignment compose-up compose-down compose-reset e2e e2e-shell e2e-runner e2e-helm-kind clean
 
 build-patcher:
 	./scripts/build-patcher-image.sh
@@ -10,6 +10,9 @@ helm-lint:
 
 helm-template:
 	helm template ocis charts/ocis-subpath
+
+helm-template-role-assignment:
+	./scripts/helm-template-role-assignment.sh
 
 compose-up:
 	./scripts/compose/up.sh

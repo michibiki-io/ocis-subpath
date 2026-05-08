@@ -10,5 +10,5 @@ metadata:
 data:
   csp.yaml: |
     directives:
-{{ toYaml ($csp.directives | default dict) | indent 6 }}
+{{ include "ocis-subpath.cspDirectives" . | indent 6 }}
 {{- end }}

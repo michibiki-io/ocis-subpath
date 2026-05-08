@@ -107,13 +107,13 @@
                   {
                     "required": ["issuer"],
                     "properties": {
-                      "issuer": { "type": "string", "minLength": 1 }
+                      "issuer": { "type": "string", "minLength": 1, "pattern": "^https?://" }
                     }
                   },
                   {
                     "required": ["authority"],
                     "properties": {
-                      "authority": { "type": "string", "minLength": 1 }
+                      "authority": { "type": "string", "minLength": 1, "pattern": "^https?://" }
                     }
                   }
                 ]
@@ -127,10 +127,103 @@
                 "enabled": { "type": "boolean" }
               }
             },
-            "issuer": { "type": "string" },
+            "issuer": {
+              "type": "string",
+              "description": "External OIDC issuer URL. Its origin is automatically added to CSP connect-src when external.enabled=true.",
+              "pattern": "^$|^https?://"
+            },
             "rewriteWellknown": { "type": "boolean" },
-            "metadataUrl": { "type": "string" },
-            "authority": { "type": "string" }
+            "metadataUrl": {
+              "type": "string",
+              "description": "External OIDC discovery metadata URL. Its origin is automatically added to CSP connect-src when external.enabled=true.",
+              "pattern": "^$|^https?://"
+            },
+            "authority": {
+              "type": "string",
+              "description": "External OIDC authority URL. Its origin is automatically added to CSP connect-src when external.enabled=true.",
+              "pattern": "^$|^https?://"
+            }
+          }
+        },
+        "roleAssignment": {
+          "type": "object",
+          "allOf": [
+            {
+              "if": {
+                "required": ["enabled", "mode"],
+                "properties": {
+                  "enabled": { "const": true },
+                  "mode": { "const": "group" }
+                }
+              },
+              "then": {
+                "required": ["driver", "mode", "groupClaim", "groupMapping"],
+                "properties": {
+                  "groupClaim": { "type": "string", "minLength": 1 }
+                }
+              }
+            },
+            {
+              "if": {
+                "required": ["enabled", "mode"],
+                "properties": {
+                  "enabled": { "const": true },
+                  "mode": { "const": "user" }
+                }
+              },
+              "then": {
+                "required": ["driver", "mode", "userClaim", "userMapping"],
+                "properties": {
+                  "userClaim": { "type": "string", "minLength": 1 }
+                }
+              }
+            },
+            {
+              "if": {
+                "required": ["enabled", "mode"],
+                "properties": {
+                  "enabled": { "const": true },
+                  "mode": { "const": "auto" }
+                }
+              },
+              "then": {
+                "required": ["driver", "mode"]
+              }
+            }
+          ],
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "driver": {
+              "type": "string",
+              "enum": ["oidc"]
+            },
+            "mode": {
+              "type": "string",
+              "enum": ["auto", "group", "user"],
+              "description": "Selects which OIDC claim is used for role assignment. auto uses groupMapping when non-empty, otherwise userMapping."
+            },
+            "groupClaim": { "type": "string" },
+            "groupMapping": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "admin": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+                "spaceadmin": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+                "user": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+                "guest": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+              }
+            },
+            "userClaim": { "type": "string" },
+            "userMapping": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "admin": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+                "spaceadmin": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+                "user": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+                "guest": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+              }
+            }
           }
         }
       }
