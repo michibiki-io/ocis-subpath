@@ -28,7 +28,6 @@ def release_data(overrides: dict[str, dict[str, str]] | None = None) -> dict[str
             "repo": "https://github.com/owncloud/web.git",
         },
         "patcher": {
-            "version": "0.1.0",
             "imageTag": "web-v12.3.3-subpath.1",
         },
         "chart": {
