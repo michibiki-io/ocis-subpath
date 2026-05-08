@@ -8,6 +8,7 @@ on:
       - "images/web-assets-patcher/**"
       - "scripts/build-patcher-image.sh"
       - "scripts/e2e/**"
+      - "tests/e2e/**"
       - "Makefile"
       - ".github/workflows/helm-e2e.yml"
 
@@ -30,7 +31,16 @@ jobs:
         with:
           version: v0.30.0
 
+      - name: Restore E2E asset cache
+        uses: actions/cache@v4
+        with:
+          path: .tmp/e2e-assets
+          key: e2e-assets-big-buck-bunny-alt-v1
+
       - name: Run Helm chart e2e on kind
+        env:
+          E2E_ASSET_CACHE_DIR: ${{ github.workspace }}/.tmp/e2e-assets
+          E2E_FIXTURE_USER_AGENT: ocis-subpath-e2e/1.0 (https://github.com/michibiki-io/ocis-subpath)
         run: |
           KEEP_ON_FAILURE=false make e2e-helm-kind
 
