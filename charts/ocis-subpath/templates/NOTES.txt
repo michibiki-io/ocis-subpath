@@ -4,4 +4,4 @@ Public URL: {{ include "ocis-subpath.publicUrl" . }}
 Health endpoint: {{ include "ocis-subpath.probePath" . | trim }}
 
 This chart expects external reverse proxies to preserve the subpath.
-When ingress.enabled=true, the chart renders Traefik routing and strips {{ include "ocis-subpath.normalizedSubpath" . | trim }} only for backend API paths.
+When traefik.enabled=true, the chart renders Traefik routing and strips {{ include "ocis-subpath.normalizedSubpath" . | trim }} only for backend API paths.

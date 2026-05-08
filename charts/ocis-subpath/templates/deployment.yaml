@@ -1,4 +1,5 @@
 {{- $csp := .Values.ocis.csp | default dict -}}
+{{- $externalIDP := .Values.ocis.oidc.external.enabled -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -100,9 +101,11 @@ spec:
             - name: http
               containerPort: 9200
               protocol: TCP
+            {{- if not $externalIDP }}
             - name: idp
               containerPort: 9130
               protocol: TCP
+            {{- end }}
             - name: frontend
               containerPort: 9140
               protocol: TCP
@@ -111,8 +114,10 @@ spec:
               value: {{ include "ocis-subpath.publicUrl" . | quote }}
             - name: WEB_HTTP_ROOT
               value: {{ include "ocis-subpath.normalizedSubpath" . | trim | quote }}
+            {{- if not $externalIDP }}
             - name: IDP_URI_BASE_PATH
               value: {{ include "ocis-subpath.normalizedSubpath" . | trim | quote }}
+            {{- end }}
             - name: PROXY_TLS
               value: {{ ternary "true" "false" .Values.ocis.proxyTls | quote }}
             - name: OCIS_INSECURE
@@ -134,7 +139,7 @@ spec:
             - name: OCIS_OIDC_ISSUER
               value: {{ include "ocis-subpath.oidcAuthority" . | quote }}
             - name: PROXY_OIDC_REWRITE_WELLKNOWN
-              value: {{ ternary "true" "false" .Values.ocis.oidc.rewriteWellknown | quote }}
+              value: {{ ternary "true" "false" (and (not $externalIDP) .Values.ocis.oidc.rewriteWellknown) | quote }}
             {{- if ($csp.enabled | default false) }}
             - name: PROXY_CSP_CONFIG_FILE_LOCATION
               value: /etc/ocis-csp/csp.yaml

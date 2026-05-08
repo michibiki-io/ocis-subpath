@@ -82,6 +82,8 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- $metadata := .Values.ocis.oidc.metadataUrl | trim -}}
 {{- if $metadata -}}
 {{- regexReplaceAll "/+$" $metadata "" -}}
+{{- else if .Values.ocis.oidc.external.enabled -}}
+{{- printf "%s/.well-known/openid-configuration" (include "ocis-subpath.oidcAuthority" .) -}}
 {{- else -}}
 {{- printf "%s/.well-known/openid-configuration" (include "ocis-subpath.publicUrl" .) -}}
 {{- end -}}

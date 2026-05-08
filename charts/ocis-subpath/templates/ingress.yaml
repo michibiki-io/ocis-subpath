@@ -1,7 +1,8 @@
-{{- if .Values.ingress.enabled }}
+{{- if .Values.traefik.enabled }}
 {{- $fullname := include "ocis-subpath.fullname" . -}}
 {{- $labels := include "ocis-subpath.labels" . -}}
 {{- $subpath := include "ocis-subpath.normalizedSubpath" . | trim -}}
+{{- $externalIDP := .Values.ocis.oidc.external.enabled -}}
 {{- $routePrefix := "" -}}
 {{- if ne $subpath "/" -}}
 {{- $routePrefix = $subpath -}}
@@ -12,7 +13,7 @@ metadata:
   labels:
     {{- $labels | nindent 4 }}
     app.kubernetes.io/component: ingress-middleware
-  {{- with .Values.ingress.annotations }}
+  {{- with .Values.traefik.annotations }}
   annotations:
     {{- toYaml . | nindent 4 }}
   {{- end }}
@@ -29,7 +30,7 @@ metadata:
   labels:
     {{- $labels | nindent 4 }}
     app.kubernetes.io/component: ingress-middleware
-  {{- with .Values.ingress.annotations }}
+  {{- with .Values.traefik.annotations }}
   annotations:
     {{- toYaml . | nindent 4 }}
   {{- end }}
@@ -38,6 +39,7 @@ spec:
     customRequestHeaders:
       Authorization: ""
 ---
+{{- if not $externalIDP }}
 apiVersion: traefik.io/v1alpha1
 kind: IngressRoute
 metadata:
@@ -45,15 +47,15 @@ metadata:
   labels:
     {{- $labels | nindent 4 }}
     app.kubernetes.io/component: ingress
-  {{- with .Values.ingress.annotations }}
+  {{- with .Values.traefik.annotations }}
   annotations:
     {{- toYaml . | nindent 4 }}
   {{- end }}
 spec:
   entryPoints:
-    {{- toYaml .Values.ingress.entryPoints | nindent 4 }}
+    {{- toYaml .Values.traefik.entryPoints | nindent 4 }}
   routes:
-    {{- range .Values.ingress.hosts }}
+    {{- range .Values.traefik.hosts }}
     - match: Host(`{{ .host }}`) && PathPrefix(`{{ $routePrefix }}/.well-known`)
       kind: Rule
       priority: 200
@@ -61,7 +63,7 @@ spec:
         - name: {{ $fullname }}-idp
           port: 9130
     {{- end }}
-  tls: {{ toJson .Values.ingress.tls }}
+  tls: {{ toJson .Values.traefik.tls }}
 ---
 apiVersion: traefik.io/v1alpha1
 kind: IngressRoute
@@ -70,15 +72,15 @@ metadata:
   labels:
     {{- $labels | nindent 4 }}
     app.kubernetes.io/component: ingress
-  {{- with .Values.ingress.annotations }}
+  {{- with .Values.traefik.annotations }}
   annotations:
     {{- toYaml . | nindent 4 }}
   {{- end }}
 spec:
   entryPoints:
-    {{- toYaml .Values.ingress.entryPoints | nindent 4 }}
+    {{- toYaml .Values.traefik.entryPoints | nindent 4 }}
   routes:
-    {{- range .Values.ingress.hosts }}
+    {{- range .Values.traefik.hosts }}
     - match: Host(`{{ .host }}`) && (PathPrefix(`{{ $routePrefix }}/signin`) || PathPrefix(`{{ $routePrefix }}/konnect`))
       kind: Rule
       priority: 205
@@ -86,8 +88,9 @@ spec:
         - name: {{ $fullname }}-idp
           port: 9130
     {{- end }}
-  tls: {{ toJson .Values.ingress.tls }}
+  tls: {{ toJson .Values.traefik.tls }}
 ---
+{{- end }}
 apiVersion: traefik.io/v1alpha1
 kind: IngressRoute
 metadata:
@@ -95,15 +98,15 @@ metadata:
   labels:
     {{- $labels | nindent 4 }}
     app.kubernetes.io/component: ingress
-  {{- with .Values.ingress.annotations }}
+  {{- with .Values.traefik.annotations }}
   annotations:
     {{- toYaml . | nindent 4 }}
   {{- end }}
 spec:
   entryPoints:
-    {{- toYaml .Values.ingress.entryPoints | nindent 4 }}
+    {{- toYaml .Values.traefik.entryPoints | nindent 4 }}
   routes:
-    {{- range .Values.ingress.hosts }}
+    {{- range .Values.traefik.hosts }}
     - match: Host(`{{ .host }}`) && Path(`{{ $routePrefix }}/ocs/v2.php/cloud/capabilities`)
       kind: Rule
       priority: 190
@@ -116,7 +119,7 @@ spec:
         - name: {{ $fullname }}-frontend
           port: 9140
     {{- end }}
-  tls: {{ toJson .Values.ingress.tls }}
+  tls: {{ toJson .Values.traefik.tls }}
 ---
 apiVersion: traefik.io/v1alpha1
 kind: IngressRoute
@@ -125,15 +128,15 @@ metadata:
   labels:
     {{- $labels | nindent 4 }}
     app.kubernetes.io/component: ingress
-  {{- with .Values.ingress.annotations }}
+  {{- with .Values.traefik.annotations }}
   annotations:
     {{- toYaml . | nindent 4 }}
   {{- end }}
 spec:
   entryPoints:
-    {{- toYaml .Values.ingress.entryPoints | nindent 4 }}
+    {{- toYaml .Values.traefik.entryPoints | nindent 4 }}
   routes:
-    {{- range .Values.ingress.hosts }}
+    {{- range .Values.traefik.hosts }}
     - match: Host(`{{ .host }}`) && (PathPrefix(`{{ $routePrefix }}/graph`) || PathPrefix(`{{ $routePrefix }}/api`) || PathPrefix(`{{ $routePrefix }}/dav`) || PathPrefix(`{{ $routePrefix }}/data`) || PathPrefix(`{{ $routePrefix }}/remote.php`) || PathPrefix(`{{ $routePrefix }}/ocs`) || PathPrefix(`{{ $routePrefix }}/thumbnails`))
       kind: Rule
       priority: 180
@@ -145,7 +148,7 @@ spec:
         - name: {{ $fullname }}
           port: {{ $.Values.service.port }}
     {{- end }}
-  tls: {{ toJson .Values.ingress.tls }}
+  tls: {{ toJson .Values.traefik.tls }}
 ---
 apiVersion: traefik.io/v1alpha1
 kind: IngressRoute
@@ -154,15 +157,15 @@ metadata:
   labels:
     {{- $labels | nindent 4 }}
     app.kubernetes.io/component: ingress
-  {{- with .Values.ingress.annotations }}
+  {{- with .Values.traefik.annotations }}
   annotations:
     {{- toYaml . | nindent 4 }}
   {{- end }}
 spec:
   entryPoints:
-    {{- toYaml .Values.ingress.entryPoints | nindent 4 }}
+    {{- toYaml .Values.traefik.entryPoints | nindent 4 }}
   routes:
-    {{- range .Values.ingress.hosts }}
+    {{- range .Values.traefik.hosts }}
     - match: Host(`{{ .host }}`) && PathPrefix(`{{ $subpath }}`)
       kind: Rule
       priority: 100
@@ -170,5 +173,5 @@ spec:
         - name: {{ $fullname }}
           port: {{ $.Values.service.port }}
     {{- end }}
-  tls: {{ toJson .Values.ingress.tls }}
+  tls: {{ toJson .Values.traefik.tls }}
 {{- end }}

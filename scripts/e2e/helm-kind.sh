@@ -241,10 +241,10 @@ hctl upgrade --install "${RELEASE_NAME}" charts/ocis-subpath \
   --set "webAssetsPatcher.image.tag=${PATCHER_IMAGE_TAG}" \
   --set "webAssetsPatcher.image.pullPolicy=${PATCHER_IMAGE_PULL_POLICY}" \
   --set "webAssetsPatcher.patchAbsoluteUrls=true" \
-  --set "ingress.enabled=true" \
-  --set-json 'ingress.entryPoints=["websecure"]' \
-  --set "ingress.hosts[0].host=${INGRESS_HOST}" \
-  --set-json 'ingress.tls={}' \
+  --set "traefik.enabled=true" \
+  --set-json 'traefik.entryPoints=["websecure"]' \
+  --set "traefik.hosts[0].host=${INGRESS_HOST}" \
+  --set-json 'traefik.tls={}' \
   --set-json 'webAssetsPatcher.apps=["files","preview","pdf-viewer","search","text-editor","admin-settings","epub-reader"]'
 
 log "waiting for deployment rollout..."
