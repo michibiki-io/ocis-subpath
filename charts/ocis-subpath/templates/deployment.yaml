@@ -1,5 +1,6 @@
 {{- $csp := .Values.ocis.csp | default dict -}}
 {{- $externalIDP := .Values.ocis.oidc.external.enabled -}}
+{{- $roleAssignment := .Values.ocis.roleAssignment | default dict -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -19,13 +20,16 @@ spec:
         {{- with .Values.podLabels }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
-      {{- if or .Values.podAnnotations ($csp.enabled | default false) }}
+      {{- if or .Values.podAnnotations ($csp.enabled | default false) ($roleAssignment.enabled | default false) }}
       annotations:
         {{- with .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
         {{- if ($csp.enabled | default false) }}
-        checksum/csp-config: {{ toYaml ($csp.directives | default dict) | sha256sum }}
+        checksum/csp-config: {{ include "ocis-subpath.cspDirectives" . | sha256sum }}
+        {{- end }}
+        {{- if ($roleAssignment.enabled | default false) }}
+        checksum/proxy-config: {{ include "ocis-subpath.roleAssignmentClaim" . | printf "%s\n%s" (include "ocis-subpath.roleAssignmentMapping" .) | sha256sum }}
         {{- end }}
       {{- end }}
     spec:
@@ -140,6 +144,10 @@ spec:
               value: {{ include "ocis-subpath.oidcAuthority" . | quote }}
             - name: PROXY_OIDC_REWRITE_WELLKNOWN
               value: {{ ternary "true" "false" (and (not $externalIDP) .Values.ocis.oidc.rewriteWellknown) | quote }}
+            {{- if ($roleAssignment.enabled | default false) }}
+            - name: PROXY_ROLE_ASSIGNMENT_DRIVER
+              value: {{ default "oidc" $roleAssignment.driver | quote }}
+            {{- end }}
             {{- if ($csp.enabled | default false) }}
             - name: PROXY_CSP_CONFIG_FILE_LOCATION
               value: /etc/ocis-csp/csp.yaml
@@ -178,6 +186,12 @@ spec:
               mountPath: /var/lib/ocis
             - name: config
               mountPath: /etc/ocis
+            {{- if ($roleAssignment.enabled | default false) }}
+            - name: proxy-config
+              mountPath: /etc/ocis/proxy.yaml
+              subPath: proxy.yaml
+              readOnly: true
+            {{- end }}
             - name: web-assets
               mountPath: /web-assets
             - name: web-config
@@ -233,6 +247,11 @@ spec:
           {{- end }}
         - name: web-config
           emptyDir: {}
+        {{- if ($roleAssignment.enabled | default false) }}
+        - name: proxy-config
+          configMap:
+            name: {{ include "ocis-subpath.fullname" . }}-proxy
+        {{- end }}
         {{- if ($csp.enabled | default false) }}
         - name: csp-config
           configMap:

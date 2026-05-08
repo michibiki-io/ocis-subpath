@@ -1,0 +1,18 @@
+{{- $roleAssignment := .Values.ocis.roleAssignment | default dict -}}
+{{- if ($roleAssignment.enabled | default false) }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "ocis-subpath.fullname" . }}-proxy
+  labels:
+    {{- include "ocis-subpath.labels" . | nindent 4 }}
+    app.kubernetes.io/component: config
+data:
+  proxy.yaml: |
+    role_assignment:
+      driver: {{ default "oidc" $roleAssignment.driver }}
+      oidc_role_mapper:
+        role_claim: {{ include "ocis-subpath.roleAssignmentClaim" . | quote }}
+        role_mapping:
+{{ include "ocis-subpath.roleAssignmentMapping" . | trim | indent 10 }}
+{{- end }}

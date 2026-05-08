@@ -107,7 +107,7 @@ spec:
     {{- toYaml .Values.traefik.entryPoints | nindent 4 }}
   routes:
     {{- range .Values.traefik.hosts }}
-    - match: Host(`{{ .host }}`) && Path(`{{ $routePrefix }}/ocs/v2.php/cloud/capabilities`)
+    - match: Host(`{{ .host }}`) && (Path(`{{ $routePrefix }}/ocs/v2.php/cloud/capabilities`) || Path(`{{ $routePrefix }}/ocs/v1.php/cloud/capabilities`))
       kind: Rule
       priority: 190
       middlewares:
@@ -115,6 +115,35 @@ spec:
         - name: {{ $fullname }}-strip-subpath-prefix
         {{- end }}
         - name: {{ $fullname }}-drop-auth-header
+      services:
+        - name: {{ $fullname }}-frontend
+          port: 9140
+    {{- end }}
+  tls: {{ toJson .Values.traefik.tls }}
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: {{ $fullname }}-frontend
+  labels:
+    {{- $labels | nindent 4 }}
+    app.kubernetes.io/component: ingress
+  {{- with .Values.traefik.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  entryPoints:
+    {{- toYaml .Values.traefik.entryPoints | nindent 4 }}
+  routes:
+    {{- range .Values.traefik.hosts }}
+    - match: Host(`{{ .host }}`) && (Path(`{{ $routePrefix }}/app`) || PathPrefix(`{{ $routePrefix }}/app/`) || Path(`{{ $routePrefix }}/archiver`) || PathPrefix(`{{ $routePrefix }}/archiver/`))
+      kind: Rule
+      priority: 185
+      {{- if ne $subpath "/" }}
+      middlewares:
+        - name: {{ $fullname }}-strip-subpath-prefix
+      {{- end }}
       services:
         - name: {{ $fullname }}-frontend
           port: 9140

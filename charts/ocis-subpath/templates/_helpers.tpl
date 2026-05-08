@@ -89,6 +89,90 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end -}}
 {{- end -}}
 
+{{- define "ocis-subpath.urlOrigin" -}}
+{{- $url := . | default "" | trim -}}
+{{- if regexMatch "^https?://[^/?#]+([/?#].*)?$" $url -}}
+{{- regexReplaceAll "^(https?://[^/?#]+).*$" $url "${1}" -}}
+{{- end -}}
+{{- end -}}
+
+{{- define "ocis-subpath.cspDirectives" -}}
+{{- $csp := .Values.ocis.csp | default dict -}}
+{{- $directives := deepCopy ($csp.directives | default dict) -}}
+{{- if .Values.ocis.oidc.external.enabled -}}
+{{- $connectSrc := get $directives "connect-src" | default list -}}
+{{- range $url := list .Values.ocis.oidc.issuer .Values.ocis.oidc.authority .Values.ocis.oidc.metadataUrl }}
+{{- $origin := include "ocis-subpath.urlOrigin" $url | trim -}}
+{{- if $origin -}}
+{{- $connectSrc = append $connectSrc $origin -}}
+{{- end -}}
+{{- end -}}
+{{- $_ := set $directives "connect-src" (uniq $connectSrc) -}}
+{{- end -}}
+{{- toYaml $directives -}}
+{{- end -}}
+
+{{- define "ocis-subpath.roleAssignmentMappingCount" -}}
+{{- $mapping := . | default dict -}}
+{{- $count := 0 -}}
+{{- range $role := list "admin" "spaceadmin" "user" "guest" -}}
+{{- $count = add $count (len (get $mapping $role | default list)) -}}
+{{- end -}}
+{{- $count -}}
+{{- end -}}
+
+{{- define "ocis-subpath.roleAssignmentMode" -}}
+{{- $ra := .Values.ocis.roleAssignment | default dict -}}
+{{- $mode := default "auto" $ra.mode -}}
+{{- if eq $mode "auto" -}}
+{{- $groupCount := include "ocis-subpath.roleAssignmentMappingCount" ($ra.groupMapping | default dict) | int -}}
+{{- $userCount := include "ocis-subpath.roleAssignmentMappingCount" ($ra.userMapping | default dict) | int -}}
+{{- if gt $groupCount 0 -}}
+group
+{{- else if gt $userCount 0 -}}
+user
+{{- else -}}
+{{- fail "ocis.roleAssignment.enabled=true requires at least one groupMapping or userMapping entry" -}}
+{{- end -}}
+{{- else -}}
+{{- $mode -}}
+{{- end -}}
+{{- end -}}
+
+{{- define "ocis-subpath.roleAssignmentClaim" -}}
+{{- $ra := .Values.ocis.roleAssignment | default dict -}}
+{{- $mode := include "ocis-subpath.roleAssignmentMode" . | trim -}}
+{{- if eq $mode "group" -}}
+{{- required "ocis.roleAssignment.groupClaim is required when roleAssignment mode is group" ($ra.groupClaim | default "" | trim) -}}
+{{- else if eq $mode "user" -}}
+{{- required "ocis.roleAssignment.userClaim is required when roleAssignment mode is user" ($ra.userClaim | default "" | trim) -}}
+{{- else -}}
+{{- fail (printf "unsupported ocis.roleAssignment.mode %q" $mode) -}}
+{{- end -}}
+{{- end -}}
+
+{{- define "ocis-subpath.roleAssignmentMapping" -}}
+{{- $ra := .Values.ocis.roleAssignment | default dict -}}
+{{- $mode := include "ocis-subpath.roleAssignmentMode" . | trim -}}
+{{- $mapping := dict -}}
+{{- if eq $mode "group" -}}
+{{- $mapping = $ra.groupMapping | default dict -}}
+{{- else if eq $mode "user" -}}
+{{- $mapping = $ra.userMapping | default dict -}}
+{{- else -}}
+{{- fail (printf "unsupported ocis.roleAssignment.mode %q" $mode) -}}
+{{- end -}}
+{{- if eq (include "ocis-subpath.roleAssignmentMappingCount" $mapping | int) 0 -}}
+{{- fail (printf "ocis.roleAssignment.%sMapping must contain at least one mapping entry" $mode) -}}
+{{- end -}}
+{{- range $role := list "admin" "spaceadmin" "user" "guest" -}}
+{{- range $claimValue := get $mapping $role | default list }}
+- role_name: {{ $role }}
+  claim_value: {{ $claimValue | quote }}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+
 {{- define "ocis-subpath.probePath" -}}
 {{- $subpath := include "ocis-subpath.normalizedSubpath" . | trim -}}
 {{- if eq $subpath "/" -}}
