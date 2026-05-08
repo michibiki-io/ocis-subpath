@@ -17,9 +17,15 @@ RUN make ci-node-generate
 
 FROM owncloudci/golang:1.25 AS build
 
+ENV PATH="/go/bin:/usr/local/go/bin:${PATH}"
+
 COPY --from=source /src/ocis /ocis
 WORKDIR /ocis/ocis
-RUN make ci-go-generate build ENABLE_VIPS=true
+RUN GO="$(command -v go)" \
+    GOHOSTOS="$(go env GOHOSTOS)" \
+    GOHOSTARCH="$(go env GOHOSTARCH)" \
+    GOHOSTARM="$(go env GOHOSTARM)" \
+    make ci-go-generate build ENABLE_VIPS=true
 
 FROM alpine:3.23.3
 
