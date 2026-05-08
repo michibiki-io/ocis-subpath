@@ -3,7 +3,9 @@ from __future__ import annotations
 
 import importlib.util
 import unittest
+from unittest import mock
 from pathlib import Path
+from urllib.error import HTTPError
 
 
 MODULE_PATH = Path(__file__).resolve().parents[1] / "read_release.py"
@@ -40,7 +42,7 @@ def release_data(overrides: dict[str, dict[str, str]] | None = None) -> dict[str
 
 
 class ReadReleaseTests(unittest.TestCase):
-    def test_missing_release_tags_are_auto_release_targets(self) -> None:
+    def test_missing_releases_are_auto_release_targets(self) -> None:
         current = release_data()
         targets = read_release.resolve_targets(
             current,
@@ -59,7 +61,7 @@ class ReadReleaseTests(unittest.TestCase):
             },
         )
 
-    def test_existing_release_tags_allow_unchanged_targets_to_skip(self) -> None:
+    def test_existing_releases_allow_unchanged_targets_to_skip(self) -> None:
         current = release_data()
         targets = read_release.resolve_targets(
             current,
@@ -78,7 +80,7 @@ class ReadReleaseTests(unittest.TestCase):
             },
         )
 
-    def test_explicit_false_override_suppresses_missing_tag_release(self) -> None:
+    def test_explicit_false_override_suppresses_missing_release(self) -> None:
         current = release_data({"release": {"ocis": "false", "patcher": "auto", "chart": "auto"}})
         targets = read_release.resolve_targets(
             current,
@@ -91,6 +93,40 @@ class ReadReleaseTests(unittest.TestCase):
         self.assertEqual(targets["release_ocis"], "false")
         self.assertEqual(targets["release_patcher"], "true")
         self.assertEqual(targets["release_chart"], "true")
+
+    @mock.patch.dict(
+        read_release.os.environ,
+        {"GITHUB_REPOSITORY": "michibiki-io/ocis-subpath", "GITHUB_TOKEN": "token"},
+        clear=True,
+    )
+    @mock.patch.object(read_release.urllib.request, "urlopen")
+    def test_github_release_exists_checks_encoded_release_tag(self, urlopen: mock.Mock) -> None:
+        urlopen.return_value.__enter__.return_value = object()
+
+        self.assertTrue(read_release.github_release_exists("ocis/v8.0.1-subpath.1"))
+
+        request = urlopen.call_args.args[0]
+        self.assertIn("/releases/tags/ocis%2Fv8.0.1-subpath.1", request.full_url)
+
+    @mock.patch.dict(
+        read_release.os.environ,
+        {"GITHUB_REPOSITORY": "michibiki-io/ocis-subpath", "GITHUB_TOKEN": "token"},
+        clear=True,
+    )
+    @mock.patch.object(read_release.urllib.request, "urlopen")
+    def test_github_release_missing_returns_false(self, urlopen: mock.Mock) -> None:
+        urlopen.side_effect = HTTPError("https://api.github.test", 404, "not found", {}, None)
+
+        self.assertFalse(read_release.github_release_exists("ocis/v8.0.1-subpath.1"))
+
+    @mock.patch.dict(read_release.os.environ, {}, clear=True)
+    @mock.patch.object(read_release, "tag_exists", return_value=True)
+    def test_release_artifact_falls_back_to_git_tag_without_github_context(
+        self,
+        tag_exists: mock.Mock,
+    ) -> None:
+        self.assertTrue(read_release.release_artifact_exists("ocis/v8.0.1-subpath.1"))
+        tag_exists.assert_called_once_with("ocis/v8.0.1-subpath.1")
 
 
 if __name__ == "__main__":

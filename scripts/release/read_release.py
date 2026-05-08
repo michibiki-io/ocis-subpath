@@ -4,6 +4,9 @@ from __future__ import annotations
 import argparse
 import os
 import subprocess
+import urllib.error
+import urllib.parse
+import urllib.request
 from pathlib import Path
 
 
@@ -103,6 +106,38 @@ def tag_exists(tag: str) -> bool:
     return True
 
 
+def github_release_exists(tag: str) -> bool | None:
+    repo = os.getenv("GITHUB_REPOSITORY", "")
+    token = os.getenv("GITHUB_TOKEN", "")
+    if not repo or not token:
+        return None
+
+    api_url = os.getenv("GITHUB_API_URL", "https://api.github.com").rstrip("/")
+    encoded_tag = urllib.parse.quote(tag, safe="")
+    request = urllib.request.Request(
+        f"{api_url}/repos/{repo}/releases/tags/{encoded_tag}",
+        headers={
+            "Accept": "application/vnd.github+json",
+            "Authorization": f"Bearer {token}",
+            "X-GitHub-Api-Version": "2022-11-28",
+        },
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=15):
+            return True
+    except urllib.error.HTTPError as exc:
+        if exc.code == 404:
+            return False
+        raise
+
+
+def release_artifact_exists(tag: str) -> bool:
+    release_exists = github_release_exists(tag)
+    if release_exists is not None:
+        return release_exists
+    return tag_exists(tag)
+
+
 def section_changed(
     current: dict[str, dict[str, str]],
     previous: dict[str, dict[str, str]] | None,
@@ -122,12 +157,12 @@ def auto_targets(
     current: dict[str, dict[str, str]],
     previous: dict[str, dict[str, str]] | None,
     files: list[str],
-    missing_tags: dict[str, bool] | None = None,
+    missing_releases: dict[str, bool] | None = None,
 ) -> dict[str, str]:
-    missing_tags = missing_tags or {}
+    missing_releases = missing_releases or {}
     ocis = any(matches_any(path, ("images/ocis-subpath/",), ()) for path in files)
     ocis = ocis or section_changed(current, previous, "ocis", {"upstreamRef", "imageTag", "repo"})
-    ocis = ocis or missing_tags.get("ocis", False)
+    ocis = ocis or missing_releases.get("ocis", False)
 
     patcher = any(
         matches_any(path, ("images/web-assets-patcher/",), ("scripts/build-patcher-image.sh",))
@@ -135,11 +170,11 @@ def auto_targets(
     )
     patcher = patcher or section_changed(current, previous, "web", {"upstreamRef", "repo"})
     patcher = patcher or section_changed(current, previous, "patcher", {"version", "imageTag"})
-    patcher = patcher or missing_tags.get("patcher", False)
+    patcher = patcher or missing_releases.get("patcher", False)
 
     chart = any(matches_any(path, ("charts/ocis-subpath/",), ()) for path in files)
     chart = chart or section_changed(current, previous, "chart", {"version", "appVersion"})
-    chart = chart or missing_tags.get("chart", False)
+    chart = chart or missing_releases.get("chart", False)
 
     return {
         "release_ocis": "true" if ocis else "false",
@@ -153,7 +188,7 @@ def resolve_targets(
     previous: dict[str, dict[str, str]] | None,
     files: list[str],
     has_diff_context: bool,
-    missing_tags: dict[str, bool] | None = None,
+    missing_releases: dict[str, bool] | None = None,
 ) -> dict[str, str]:
     if not has_diff_context:
         return {
@@ -162,7 +197,7 @@ def resolve_targets(
             "release_chart": bool_value(current, "release", "chart", True),
         }
 
-    computed = auto_targets(current, previous, files, missing_tags)
+    computed = auto_targets(current, previous, files, missing_releases)
     overrides = {
         "release_ocis": bool_or_auto(current, "release", "ocis"),
         "release_patcher": bool_or_auto(current, "release", "patcher"),
@@ -199,12 +234,12 @@ def main() -> int:
     ocis_git_tag = f"ocis/v{ocis_image_tag}"
     patcher_git_tag = f"patcher/v{patcher_version}-{patcher_image_tag}"
     chart_git_tag = f"chart/v{chart_version}"
-    missing_tags = {
-        "ocis": not tag_exists(ocis_git_tag),
-        "patcher": not tag_exists(patcher_git_tag),
-        "chart": not tag_exists(chart_git_tag),
+    missing_releases = {
+        "ocis": not release_artifact_exists(ocis_git_tag),
+        "patcher": not release_artifact_exists(patcher_git_tag),
+        "chart": not release_artifact_exists(chart_git_tag),
     }
-    targets = resolve_targets(data, previous, files, bool(args.base_sha and args.head_sha), missing_tags)
+    targets = resolve_targets(data, previous, files, bool(args.base_sha and args.head_sha), missing_releases)
 
     write_outputs(
         {
