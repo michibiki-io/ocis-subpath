@@ -169,7 +169,7 @@ def auto_targets(
         for path in files
     )
     patcher = patcher or section_changed(current, previous, "web", {"upstreamRef", "repo"})
-    patcher = patcher or section_changed(current, previous, "patcher", {"version", "imageTag"})
+    patcher = patcher or section_changed(current, previous, "patcher", {"imageTag"})
     patcher = patcher or missing_releases.get("patcher", False)
 
     chart = any(matches_any(path, ("charts/ocis-subpath/",), ()) for path in files)
@@ -227,12 +227,11 @@ def main() -> int:
     files = changed_files(args.base_sha, args.head_sha)
     previous = release_yaml_at(args.base_sha) if args.base_sha else None
     ocis_image_tag = require(data, "ocis", "imageTag")
-    patcher_version = require(data, "patcher", "version")
     patcher_image_tag = require(data, "patcher", "imageTag")
     chart_version = require(data, "chart", "version")
     chart_app_version = require(data, "chart", "appVersion")
     ocis_git_tag = f"ocis/v{ocis_image_tag}"
-    patcher_git_tag = f"patcher/v{patcher_version}-{patcher_image_tag}"
+    patcher_git_tag = f"patcher/{patcher_image_tag}"
     chart_git_tag = f"chart/v{chart_version}"
     missing_releases = {
         "ocis": not release_artifact_exists(ocis_git_tag),
@@ -250,9 +249,7 @@ def main() -> int:
             "ocis_git_tag": ocis_git_tag,
             "web_ref": require(data, "web", "upstreamRef"),
             "web_repo": data.get("web", {}).get("repo", "https://github.com/owncloud/web.git"),
-            "patcher_version": patcher_version,
             "patcher_image_tag": patcher_image_tag,
-            "patcher_combined_tag": f"{patcher_version}-{patcher_image_tag}",
             "patcher_git_tag": patcher_git_tag,
             "chart_version": chart_version,
             "chart_app_version": chart_app_version,

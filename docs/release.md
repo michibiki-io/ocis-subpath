@@ -17,10 +17,10 @@ The inferred release targets are:
 - patcher: `images/web-assets-patcher/**` or `scripts/build-patcher-image.sh` changed, or `release.yaml` changed `web.*` or `patcher.*`
 - chart: `charts/ocis-subpath/**` changed, or `release.yaml` changed `chart.*`
 
-For bootstrap releases, a target is also inferred when its expected release git tag does not exist yet:
+For bootstrap releases and retry recovery, a target is also inferred when its expected GitHub Release does not exist yet:
 
 - backend: `ocis/v<ocis.imageTag>`
-- patcher: `patcher/v<patcher.version>-<patcher.imageTag>`
+- patcher: `patcher/<patcher.imageTag>`
 - chart: `chart/v<chart.version>`
 
 Manual overrides are still supported when needed:
@@ -58,12 +58,11 @@ The workflow builds `images/ocis-subpath` and pushes `ghcr.io/<owner>/ocis-subpa
 
 ### ownCloud Web assets patcher image
 
-The patcher has its own SemVer because its Python patching behavior can change independently from ownCloud Web. The image also gets a compatibility tag tied to the built ownCloud Web version.
+The patcher image version is anchored to the upstream ownCloud Web version and this repository's patch revision. The `subpath.N` suffix is the patcher revision for that upstream Web bundle.
 
 ```text
-ghcr.io/<owner>/ocis-web-assets-patcher:0.4.0
 ghcr.io/<owner>/ocis-web-assets-patcher:web-v12.3.3-subpath.1
-ghcr.io/<owner>/ocis-web-assets-patcher:0.4.0-web-v12.3.3-subpath.1
+ghcr.io/<owner>/ocis-web-assets-patcher:web-12.3.3-subpath.1
 ```
 
 Release triggers:
@@ -71,7 +70,7 @@ Release triggers:
 - Merge a PR labeled `release-on-merge`
 - Manual workflow: `Release Web assets patcher`
 
-The SemVer tag describes the patcher implementation. The `web-...-subpath.N` tag describes the bundled upstream ownCloud Web compatibility.
+The `web-v...-subpath.N` tag describes both the bundled upstream ownCloud Web compatibility and this repository's patcher revision. The workflow also publishes `web-...-subpath.N` without the upstream `v` prefix as a Docker tag alias.
 
 ### Helm chart
 
@@ -124,27 +123,23 @@ The generated draft PR includes the `release-on-merge` label by default. Merging
 
 The first accepted `release-on-merge` PR should publish all three artifacts even when the upstream versions already match `release.yaml`. The release workflows fetch existing tags before resolving targets and treat missing expected tags as release targets. This means a small follow-up PR can bootstrap the initial artifacts as long as it has the `release-on-merge` label.
 
-After the bootstrap tags exist, unchanged release targets are skipped again unless their tracked files or `release.yaml` sections change.
+After the bootstrap releases exist, unchanged release targets are skipped again unless their tracked files or `release.yaml` sections change.
 
 ## Patcher-only changes
 
-When only the patcher implementation changes, backend is not released because no backend-tracked files changed. Update `release.yaml` only for the patcher version and image tag:
+When only the patcher implementation changes, backend is not released because no backend-tracked files changed. Update `release.yaml` only for the patcher image tag:
 
 ```yaml
 release:
   mode: auto
 
 patcher:
-  version: 0.1.1
   imageTag: web-v12.3.3-subpath.2
 ```
 
 If `charts/ocis-subpath/values.yaml` is also updated to point at the new patcher image by default, the chart release is inferred automatically. If chart defaults are unchanged, only the patcher image is released.
 
-For a patcher logic change against the same ownCloud Web version, increment both:
-
-- `patcher.version`, because the patcher implementation changed
-- the `subpath.N` suffix in `patcher.imageTag`, because the generated patched asset behavior changed for the same upstream Web ref
+For a patcher logic change against the same ownCloud Web version, increment the `subpath.N` suffix in `patcher.imageTag`, because the generated patched asset behavior changed for the same upstream Web ref.
 
 For CI/E2E to run on the generated draft PR, configure a repository secret named `UPSTREAM_TRACKING_TOKEN` with permission to push branches and open pull requests. The tracking workflow requires this secret before creating a draft PR. GitHub's default `GITHUB_TOKEN` is not used for the PR because events caused by it may not trigger other workflows due to GitHub's recursion prevention.
 
@@ -242,13 +237,13 @@ ocis/v8.0.2-subpath.2
 Move ownCloud Web from `12.3.3` to `12.4.0` without changing patcher behavior:
 
 ```text
-patcher/v0.4.0-web-v12.4.0-subpath.1
+patcher/web-v12.4.0-subpath.1
 ```
 
 Change patcher behavior while staying on ownCloud Web `12.4.0`:
 
 ```text
-patcher/v0.4.1-web-v12.4.0-subpath.2
+patcher/web-v12.4.0-subpath.2
 ```
 
 Update chart defaults to consume the above images:

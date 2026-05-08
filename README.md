@@ -32,7 +32,7 @@ The canonical E2E flow runs the Helm chart on kind. Validation flows, Playwright
 Release streams are split by artifact:
 
 - patched oCIS backend image: `ocis/v8.0.1-subpath.1`
-- ownCloud Web assets patcher image: `patcher/v0.4.0-web-v12.3.3-subpath.1`
+- ownCloud Web assets patcher image: `patcher/web-v12.3.3-subpath.1`
 - Helm chart: `chart/v0.2.0`
 
 The upstream tracking workflow opens an issue and a draft PR when `owncloud/ocis` or `owncloud/web` moves. Generated PRs get `release-on-merge` by default; closing the PR discards the proposed version changes, while merging it publishes the release artifacts. Release details are documented in [docs/release.md](/home/staratlas@ad.michibiki.io/workspace/ocis-web-assets-patcher/docs/release.md).
