@@ -125,7 +125,17 @@ log "validating config.json..."
 json_assert "${CONFIG_JSON}" "${BASE_URL}" "config"
 
 log "validating OIDC discovery..."
-curl "${CURL_ARGS[@]}" -fsS "${DISCOVERY_URL}" -o "${DISCOVERY_JSON}" || fail_with_response "OIDC discovery" "${DISCOVERY_URL}"
+for i in $(seq 1 60); do
+  if curl "${CURL_ARGS[@]}" -fsS "${DISCOVERY_URL}" -o "${DISCOVERY_JSON}"; then
+    break
+  fi
+
+  if [ "${i}" -eq 60 ]; then
+    fail_with_response "OIDC discovery" "${DISCOVERY_URL}"
+  fi
+
+  sleep 2
+done
 json_assert "${DISCOVERY_JSON}" "${BASE_URL}" "discovery"
 
 log "checking Web UI root..."
