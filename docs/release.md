@@ -4,7 +4,7 @@ This project has three independent release streams. They are intentionally not f
 
 ## Release streams
 
-`release.yaml` declares artifact versions. On `release-on-merge` PRs, release targets are inferred from the changed files.
+`release.yaml` declares backend and patcher artifact versions. The Helm chart version and app version are read from `charts/ocis-subpath/Chart.yaml`. On `release-on-merge` PRs, release targets are inferred from the changed files.
 
 ```yaml
 release:
@@ -15,13 +15,13 @@ The inferred release targets are:
 
 - backend: `images/ocis-subpath/**` changed, or `release.yaml` changed `ocis.upstreamRef`, `ocis.imageTag`, or `ocis.repo`
 - patcher: `images/web-assets-patcher/**` or `scripts/build-patcher-image.sh` changed, or `release.yaml` changed `web.*` or `patcher.*`
-- chart: `charts/ocis-subpath/**` changed, or `release.yaml` changed `chart.*`
+- chart: `charts/ocis-subpath/**` changed
 
 For bootstrap releases and retry recovery, a target is also inferred when its expected GitHub Release does not exist yet:
 
 - backend: `ocis/v<ocis.imageTag>`
 - patcher: `patcher/<patcher.imageTag>`
-- chart: `chart/v<chart.version>`
+- chart: `chart/v<charts/ocis-subpath/Chart.yaml version>`
 
 Manual overrides are still supported when needed:
 

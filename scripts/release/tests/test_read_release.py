@@ -30,10 +30,6 @@ def release_data(overrides: dict[str, dict[str, str]] | None = None) -> dict[str
         "patcher": {
             "imageTag": "web-v12.3.3-subpath.1",
         },
-        "chart": {
-            "version": "0.1.0",
-            "appVersion": "ocis-8.0.1-subpath.1",
-        },
     }
     for section, values in (overrides or {}).items():
         data.setdefault(section, {}).update(values)
@@ -92,6 +88,12 @@ class ReadReleaseTests(unittest.TestCase):
         self.assertEqual(targets["release_ocis"], "false")
         self.assertEqual(targets["release_patcher"], "true")
         self.assertEqual(targets["release_chart"], "true")
+
+    def test_chart_metadata_is_read_from_chart_yaml_text(self) -> None:
+        self.assertEqual(
+            read_release.parse_chart_metadata_text('version: 0.2.0\nappVersion: "ocis-8.0.1-subpath.1"\n'),
+            ("0.2.0", "ocis-8.0.1-subpath.1"),
+        )
 
     @mock.patch.dict(
         read_release.os.environ,
