@@ -25,6 +25,18 @@ fi
 if [[ -n "${E2E_SCENARIO_PASSWORD:-}" ]]; then
   e2e_env_args+=(-e "E2E_SCENARIO_PASSWORD=${E2E_SCENARIO_PASSWORD}")
 fi
+if [[ -n "${E2E_ASSET_CACHE_DIR:-}" ]]; then
+  e2e_env_args+=(-e "E2E_ASSET_CACHE_DIR=${E2E_ASSET_CACHE_DIR}")
+fi
+if [[ -n "${E2E_VIDEO_SOURCE_URL:-}" ]]; then
+  e2e_env_args+=(-e "E2E_VIDEO_SOURCE_URL=${E2E_VIDEO_SOURCE_URL}")
+fi
+if [[ -n "${E2E_FIXTURE_USER_AGENT:-}" ]]; then
+  e2e_env_args+=(-e "E2E_FIXTURE_USER_AGENT=${E2E_FIXTURE_USER_AGENT}")
+fi
+if [[ -n "${E2E_FIXTURE_DOWNLOAD_ATTEMPTS:-}" ]]; then
+  e2e_env_args+=(-e "E2E_FIXTURE_DOWNLOAD_ATTEMPTS=${E2E_FIXTURE_DOWNLOAD_ATTEMPTS}")
+fi
 
 extra_host_args=()
 if [[ -n "${E2E_EXTRA_HOSTS:-}" ]]; then
