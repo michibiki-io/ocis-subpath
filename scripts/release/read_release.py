@@ -44,6 +44,27 @@ def parse_release_yaml_text(text: str) -> dict[str, dict[str, str]]:
         tmp.unlink(missing_ok=True)
 
 
+def parse_chart_metadata_text(text: str) -> tuple[str, str]:
+    version = ""
+    app_version = ""
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if line.startswith("version:"):
+            version = line.split(":", 1)[1].strip().strip('"').strip("'")
+        if line.startswith("appVersion:"):
+            app_version = line.split(":", 1)[1].strip().strip('"').strip("'")
+
+    if not version:
+        raise SystemExit("missing Chart.yaml value: version")
+    if not app_version:
+        raise SystemExit("missing Chart.yaml value: appVersion")
+    return version, app_version
+
+
+def chart_metadata(path: Path | None = None) -> tuple[str, str]:
+    return parse_chart_metadata_text((path or ROOT / "charts/ocis-subpath/Chart.yaml").read_text(encoding="utf-8"))
+
+
 def require(data: dict[str, dict[str, str]], section: str, key: str) -> str:
     value = data.get(section, {}).get(key, "")
     if not value:
@@ -96,6 +117,16 @@ def release_yaml_at(sha: str) -> dict[str, dict[str, str]] | None:
     except subprocess.CalledProcessError:
         return None
     return parse_release_yaml_text(text)
+
+
+def chart_metadata_at(sha: str) -> tuple[str, str] | None:
+    if not sha:
+        return None
+    try:
+        text = git("show", f"{sha}:charts/ocis-subpath/Chart.yaml")
+    except subprocess.CalledProcessError:
+        return None
+    return parse_chart_metadata_text(text)
 
 
 def tag_exists(tag: str) -> bool:
@@ -158,6 +189,7 @@ def auto_targets(
     previous: dict[str, dict[str, str]] | None,
     files: list[str],
     missing_releases: dict[str, bool] | None = None,
+    chart_changed: bool = False,
 ) -> dict[str, str]:
     missing_releases = missing_releases or {}
     ocis = any(matches_any(path, ("images/ocis-subpath/",), ()) for path in files)
@@ -174,6 +206,7 @@ def auto_targets(
 
     chart = any(matches_any(path, ("charts/ocis-subpath/",), ()) for path in files)
     chart = chart or section_changed(current, previous, "chart", {"version", "appVersion"})
+    chart = chart or chart_changed
     chart = chart or missing_releases.get("chart", False)
 
     return {
@@ -189,6 +222,7 @@ def resolve_targets(
     files: list[str],
     has_diff_context: bool,
     missing_releases: dict[str, bool] | None = None,
+    chart_changed: bool = False,
 ) -> dict[str, str]:
     if not has_diff_context:
         return {
@@ -197,7 +231,7 @@ def resolve_targets(
             "release_chart": bool_value(current, "release", "chart", True),
         }
 
-    computed = auto_targets(current, previous, files, missing_releases)
+    computed = auto_targets(current, previous, files, missing_releases, chart_changed)
     overrides = {
         "release_ocis": bool_or_auto(current, "release", "ocis"),
         "release_patcher": bool_or_auto(current, "release", "patcher"),
@@ -226,19 +260,20 @@ def main() -> int:
     data = parse_release_yaml(Path(args.file))
     files = changed_files(args.base_sha, args.head_sha)
     previous = release_yaml_at(args.base_sha) if args.base_sha else None
+    current_chart_version, current_chart_app_version = chart_metadata()
+    previous_chart = chart_metadata_at(args.base_sha) if args.base_sha else None
+    chart_changed = previous_chart is not None and previous_chart != (current_chart_version, current_chart_app_version)
     ocis_image_tag = require(data, "ocis", "imageTag")
     patcher_image_tag = require(data, "patcher", "imageTag")
-    chart_version = require(data, "chart", "version")
-    chart_app_version = require(data, "chart", "appVersion")
     ocis_git_tag = f"ocis/v{ocis_image_tag}"
     patcher_git_tag = f"patcher/{patcher_image_tag}"
-    chart_git_tag = f"chart/v{chart_version}"
+    chart_git_tag = f"chart/v{current_chart_version}"
     missing_releases = {
         "ocis": not release_artifact_exists(ocis_git_tag),
         "patcher": not release_artifact_exists(patcher_git_tag),
         "chart": not release_artifact_exists(chart_git_tag),
     }
-    targets = resolve_targets(data, previous, files, bool(args.base_sha and args.head_sha), missing_releases)
+    targets = resolve_targets(data, previous, files, bool(args.base_sha and args.head_sha), missing_releases, chart_changed)
 
     write_outputs(
         {
@@ -251,8 +286,8 @@ def main() -> int:
             "web_repo": data.get("web", {}).get("repo", "https://github.com/owncloud/web.git"),
             "patcher_image_tag": patcher_image_tag,
             "patcher_git_tag": patcher_git_tag,
-            "chart_version": chart_version,
-            "chart_app_version": chart_app_version,
+            "chart_version": current_chart_version,
+            "chart_app_version": current_chart_app_version,
             "chart_git_tag": chart_git_tag,
         }
     )

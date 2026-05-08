@@ -48,6 +48,9 @@ jobs:
         run: |
           set -euo pipefail
 
+          chart_yaml_version="$(awk '/^version:/ { print $2; exit }' charts/ocis-subpath/Chart.yaml | tr -d '"')"
+          chart_yaml_app_version="$(awk '/^appVersion:/ { print $2; exit }' charts/ocis-subpath/Chart.yaml | tr -d '"')"
+
           if [ "${EVENT_NAME}" = "pull_request" ]; then
             git fetch --force --tags origin
             original_output="${GITHUB_OUTPUT}"
@@ -69,7 +72,7 @@ jobs:
             create_tag="true"
           else
             release_chart="true"
-            chart_version="$(awk '/^version:/ { print $2; exit }' charts/ocis-subpath/Chart.yaml | tr -d '"')"
+            chart_version="${chart_yaml_version}"
             create_tag="true"
           fi
 
@@ -80,7 +83,7 @@ jobs:
 
           if [ "${EVENT_NAME}" != "pull_request" ]; then
             git_tag="chart/v${chart_version}"
-            app_version="$(awk '/^appVersion:/ { print $2; exit }' charts/ocis-subpath/Chart.yaml | tr -d '"')"
+            app_version="${chart_yaml_app_version}"
           fi
 
           {

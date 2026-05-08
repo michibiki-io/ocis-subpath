@@ -224,8 +224,6 @@ def main() -> int:
         release = replace_once(r"^  imageTag: [0-9]+\.[0-9]+\.[0-9]+-subpath\.[0-9]+$", f"  imageTag: {next_ocis_tag}", release, "release ocis imageTag")
         release = replace_once(r"(?ms)(^web:\n  upstreamRef: )v[0-9]+\.[0-9]+\.[0-9]+", lambda match: f"{match.group(1)}{latest_web_ref}", release, "release web upstreamRef")
         release = replace_once(r"(?ms)(^patcher:\n(?:  .*\n)*?  imageTag: )web-v[0-9]+\.[0-9]+\.[0-9]+-subpath\.[0-9]+", lambda match: f"{match.group(1)}{next_web_tag}", release, "release patcher imageTag")
-        release = replace_once(r"(?ms)(^chart:\n  version: )[0-9]+\.[0-9]+\.[0-9]+", lambda match: f"{match.group(1)}{next_chart_version}", release, "release chart version")
-        release = replace_once(r"(?ms)(^chart:\n(?:  .*\n)*?  appVersion: )ocis-[0-9]+\.[0-9]+\.[0-9]+-subpath\.[0-9]+", lambda match: f"{match.group(1)}ocis-{next_ocis_tag}", release, "release chart appVersion")
         release_path.write_text(release, encoding="utf-8")
 
     write_outputs(
