@@ -2,5 +2,5 @@ apiVersion: v2
 name: ocis-subpath
 description: Experimental adapter chart for serving oCIS and ownCloud Web from a preserved subpath.
 type: application
-version: 0.2.1
-appVersion: "ocis-8.0.2-subpath.1"
+version: 0.2.2
+appVersion: "ocis-8.0.3-subpath.1"
