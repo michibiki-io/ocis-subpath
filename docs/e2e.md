@@ -31,8 +31,8 @@ owncloud/web source
 ## Build the patcher image
 
 ```bash
-OWNCLOUD_WEB_REF=v12.3.3 \
-IMAGE_NAME=ocis-web-assets-patcher:web-v12.4.0-subpath.1 \
+OWNCLOUD_WEB_REF=v12.4.0 \
+IMAGE_NAME=ocis-web-assets-patcher:web-v12.4.0-subpath.2 \
 ./scripts/build-patcher-image.sh
 ```
 

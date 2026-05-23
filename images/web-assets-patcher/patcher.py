@@ -49,22 +49,24 @@ OIDC_REDIRECT_TARGETS = {
     "oidc-callback.html": "web-oidc-callback",
     "oidc-silent-redirect.html": "web-oidc-silent-redirect",
 }
-SIGNED_URL_HASH_PATTERN = (
-    'const i=await this.createHashedKey(o.toString(),r,s);'
-    'return o.searchParams.set("OC-Algo","PBKDF2/".concat(this.ITERATION_COUNT,"-SHA512")),'
-    'o.searchParams.set("OC-Signature",i),o.toString()}'
-)
-SIGNED_URL_HASH_REPLACEMENT = (
-    'const __ocisSignedUrlForHash=new URL(o.toString()),'
-    '__ocisSubpathForHash=new URL(this.baseURI).pathname.replace(/\\/$/,"");'
-    '__ocisSubpathForHash&&__ocisSubpathForHash!=="/"&&'
-    '__ocisSignedUrlForHash.pathname.startsWith(__ocisSubpathForHash+"/")&&'
-    '(__ocisSignedUrlForHash.pathname=__ocisSignedUrlForHash.pathname.slice(__ocisSubpathForHash.length)||"/");'
-    'const i=await this.createHashedKey(__ocisSignedUrlForHash.toString(),r,s);'
-    'return o.searchParams.set("OC-Algo","PBKDF2/".concat(this.ITERATION_COUNT,"-SHA512")),'
-    'o.searchParams.set("OC-Signature",i),o.toString()}'
+SIGNED_URL_HASH_PATTERN = re.compile(
+    r"const (?P<signature>[A-Za-z_$][A-Za-z0-9_$]*)=await this\.createHashedKey"
+    r"\((?P<url>[A-Za-z_$][A-Za-z0-9_$]*)\.toString\(\),"
+    r"(?P<public_token>[A-Za-z_$][A-Za-z0-9_$]*),(?P<password>[A-Za-z_$][A-Za-z0-9_$]*)\);"
+    r"return (?P=url)\.searchParams\.set\(\"OC-Algo\",(?P<algorithm>"
+    r"`PBKDF2/\$\{this\.ITERATION_COUNT\}-SHA512`|"
+    r"\"PBKDF2/\"\.concat\(this\.ITERATION_COUNT,\"-SHA512\"\)"
+    r")\),(?P=url)\.searchParams\.set\(\"OC-Signature\",(?P=signature)\),(?P=url)\.toString\(\)"
 )
 GRAPH_DRIVE_SERVER_URL_PATTERN = re.compile(r"(?P<name>[A-Za-z_$][A-Za-z0-9_$]*)=t=>new URL\(t\.webUrl\)\.origin")
+WEBDAV_REMOTE_BASE_PATH_PATTERN = re.compile(
+    r"const (?P<decoded>[A-Za-z_$][A-Za-z0-9_$]*)=decodeURIComponent\((?P<href>[A-Za-z_$][A-Za-z0-9_$]*)\),"
+    r"(?P<prefix>[A-Za-z_$][A-Za-z0-9_$]*)=(?P<path_module>[A-Za-z_$][A-Za-z0-9_$]*)\.normalize"
+    r"\((?P=path_module)\.join\((?P<remote_base>[A-Za-z_$][A-Za-z0-9_$]*),\"dav\"\)\);"
+    r"return (?P=href)\?\.startsWith\((?P=prefix)\)\?"
+    r"(?P<url_join>[A-Za-z_$][A-Za-z0-9_$]*)\((?P=decoded)\.replace\((?P=prefix),\"\"\),"
+    r"\{leadingSlash:!0,trailingSlash:!1\}\):(?P=decoded)"
+)
 
 
 class PatcherError(RuntimeError):
@@ -244,7 +246,26 @@ def patch_oidc_redirect_html(html: str, subpath: str, target_path: str) -> str:
 def patch_signed_url_hash_path(content: str, subpath: str) -> tuple[str, int]:
     if subpath == "/":
         return content, 0
-    return content.replace(SIGNED_URL_HASH_PATTERN, SIGNED_URL_HASH_REPLACEMENT), content.count(SIGNED_URL_HASH_PATTERN)
+
+    def replacement(match: re.Match[str]) -> str:
+        signature = match.group("signature")
+        url = match.group("url")
+        public_token = match.group("public_token")
+        password = match.group("password")
+        algorithm = match.group("algorithm")
+        return (
+            f"const __ocisSignedUrlForHash=new URL({url}.toString()),"
+            '__ocisSubpathForHash=new URL(this.baseURI).pathname.replace(/\\/$/,"");'
+            "__ocisSubpathForHash&&__ocisSubpathForHash!==\"/\"&&"
+            "__ocisSignedUrlForHash.pathname.startsWith(__ocisSubpathForHash+\"/\")&&"
+            "(__ocisSignedUrlForHash.pathname=__ocisSignedUrlForHash.pathname.slice(__ocisSubpathForHash.length)||\"/\");"
+            f"const {signature}=await this.createHashedKey("
+            f"__ocisSignedUrlForHash.toString(),{public_token},{password});"
+            f'return {url}.searchParams.set("OC-Algo",{algorithm}),'
+            f'{url}.searchParams.set("OC-Signature",{signature}),{url}.toString()'
+        )
+
+    return SIGNED_URL_HASH_PATTERN.subn(replacement, content)
 
 
 def patch_graph_drive_server_url(content: str, subpath: str) -> tuple[str, int]:
@@ -262,6 +283,32 @@ def patch_graph_drive_server_url(content: str, subpath: str) -> tuple[str, int]:
         )
 
     return GRAPH_DRIVE_SERVER_URL_PATTERN.subn(replacement, content)
+
+
+def patch_webdav_remote_base_path(content: str, subpath: str) -> tuple[str, int]:
+    if subpath == "/":
+        return content, 0
+
+    def replacement(match: re.Match[str]) -> str:
+        decoded = match.group("decoded")
+        href = match.group("href")
+        prefix = match.group("prefix")
+        path_module = match.group("path_module")
+        remote_base = match.group("remote_base")
+        url_join = match.group("url_join")
+        options = "{leadingSlash:!0,trailingSlash:!1}"
+        return (
+            f'const {decoded}=decodeURIComponent({href}),'
+            f'{prefix}={path_module}.normalize({path_module}.join({remote_base},"dav")),'
+            '__ocisDavPrefix="/dav";'
+            f"return {href}?.startsWith({prefix})?"
+            f'{url_join}({decoded}.replace({prefix},""),{options}):'
+            f"{href}?.startsWith(__ocisDavPrefix)?"
+            f'{url_join}({decoded}.replace(__ocisDavPrefix,""),{options}):'
+            f"{decoded}"
+        )
+
+    return WEBDAV_REMOTE_BASE_PATH_PATTERN.subn(replacement, content)
 
 
 def remove_precompressed_variants(path: Path) -> list[str]:
@@ -350,6 +397,7 @@ def patch_assets(
     relative_url_changes = 0
     signed_url_hash_changes = 0
     graph_drive_server_url_changes = 0
+    webdav_remote_base_path_changes = 0
 
     for html_name in HTML_FILES:
         html_path = dst_dir / html_name
@@ -403,6 +451,9 @@ def patch_assets(
             patched, count = patch_graph_drive_server_url(patched, subpath)
             if count:
                 graph_drive_server_url_changes += count
+            patched, count = patch_webdav_remote_base_path(patched, subpath)
+            if count:
+                webdav_remote_base_path_changes += count
             if patched != content:
                 asset_path.write_text(patched, encoding="utf-8")
                 removed_variants.extend(remove_precompressed_variants(asset_path))
@@ -435,6 +486,7 @@ def patch_assets(
         "patched_relative_url_references": relative_url_changes,
         "patched_signed_url_hash_references": signed_url_hash_changes,
         "patched_graph_drive_server_url_references": graph_drive_server_url_changes,
+        "patched_webdav_remote_base_path_references": webdav_remote_base_path_changes,
     }
 
 
