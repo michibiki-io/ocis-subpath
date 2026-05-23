@@ -15,6 +15,7 @@ from patcher import (
     inject_favicon_link,
     patch_graph_drive_server_url,
     patch_signed_url_hash_path,
+    patch_webdav_remote_base_path,
 )
 
 
@@ -73,7 +74,17 @@ class PatcherTests(unittest.TestCase):
         (src / "js").mkdir(parents=True)
         (src / "themes" / "owncloud").mkdir(parents=True)
         (src / "js" / "index.mjs").write_text(
-            'fetch("/config.json"); import("/js/chunks/demo.mjs");',
+            'fetch("/config.json"); import("/js/chunks/demo.mjs");'
+            'async signUrl({url:e,username:n,publicToken:r,publicLinkPassword:s}){'
+            'const o=new URL(e);'
+            'o.searchParams.set("OC-Credential",n),o.searchParams.set("OC-Date",new Date().toISOString()),'
+            'o.searchParams.set("OC-Expires",this.TTL.toString()),o.searchParams.set("OC-Verb","GET");'
+            'const i=await this.createHashedKey(o.toString(),r,s);'
+            'return o.searchParams.set("OC-Algo",`PBKDF2/${this.ITERATION_COUNT}-SHA512`),'
+            'o.searchParams.set("OC-Signature",i),o.toString()}'
+            'Bx=async(t,e)=>{const n=s=>{const o=decodeURIComponent(s),i=un.normalize(un.join(e,"dav"));'
+            'return s?.startsWith(i)?de(o.replace(i,""),{leadingSlash:!0,trailingSlash:!1}):o};'
+            "return(await lm(t)).multistatus.response.map(({href:s,propstat:o})=>({}))};",
             encoding="utf-8",
         )
         (src / "index.html").write_text(HTML_INDEX, encoding="utf-8")
@@ -138,6 +149,8 @@ class PatcherTests(unittest.TestCase):
             self.assertEqual(config["openIdConnect"]["prompt"], "login")
             self.assertTrue(config["custom"]["enabled"])
             self.assertEqual(summary["patched_html"], ["index.html", "oidc-callback.html", "oidc-silent-redirect.html"])
+            self.assertEqual(summary["patched_signed_url_hash_references"], 1)
+            self.assertEqual(summary["patched_webdav_remote_base_path_references"], 1)
 
     def test_patch_absolute_urls_only_when_enabled(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -192,6 +205,24 @@ class PatcherTests(unittest.TestCase):
         self.assertIn("createHashedKey(__ocisSignedUrlForHash.toString(),r,s)", patched)
         self.assertIn("o.toString()", patched)
 
+    def test_patch_signed_url_hash_path_accepts_template_literal_algorithm(self):
+        source = (
+            'async signUrl({url:e,username:n,publicToken:r,publicLinkPassword:s}){'
+            'const o=new URL(e);'
+            'o.searchParams.set("OC-Credential",n),o.searchParams.set("OC-Date",new Date().toISOString()),'
+            'o.searchParams.set("OC-Expires",this.TTL.toString()),o.searchParams.set("OC-Verb","GET");'
+            'const i=await this.createHashedKey(o.toString(),r,s);'
+            'return o.searchParams.set("OC-Algo",`PBKDF2/${this.ITERATION_COUNT}-SHA512`),'
+            'o.searchParams.set("OC-Signature",i),o.toString()}'
+        )
+
+        patched, count = patch_signed_url_hash_path(source, "/ocis")
+
+        self.assertEqual(count, 1)
+        self.assertIn("new URL(this.baseURI).pathname", patched)
+        self.assertIn("createHashedKey(__ocisSignedUrlForHash.toString(),r,s)", patched)
+        self.assertIn('o.searchParams.set("OC-Algo",`PBKDF2/${this.ITERATION_COUNT}-SHA512`)', patched)
+
     def test_patch_graph_drive_server_url_keeps_subpath(self):
         source = 'const or=t=>new URL(t.webUrl).origin,O0=({axiosClient:t,config:e})=>{}'
 
@@ -201,6 +232,20 @@ class PatcherTests(unittest.TestCase):
         self.assertIn("new URL(document.baseURI).pathname", patched)
         self.assertIn('or=t=>{', patched)
         self.assertIn('__ocisDriveWebUrl.origin+(__ocisBasePath&&__ocisBasePath!=="/"?__ocisBasePath:"")', patched)
+
+    def test_patch_webdav_remote_base_path_keeps_backend_dav_paths(self):
+        source = (
+            'Bx=async(t,e)=>{const n=s=>{const o=decodeURIComponent(s),i=un.normalize(un.join(e,"dav"));'
+            'return s?.startsWith(i)?de(o.replace(i,""),{leadingSlash:!0,trailingSlash:!1}):o};'
+            "return(await lm(t)).multistatus.response.map(({href:s,propstat:o})=>({}))};"
+        )
+
+        patched, count = patch_webdav_remote_base_path(source, "/ocis")
+
+        self.assertEqual(count, 1)
+        self.assertIn('__ocisDavPrefix="/dav"', patched)
+        self.assertIn('s?.startsWith(__ocisDavPrefix)', patched)
+        self.assertIn('de(o.replace(__ocisDavPrefix,""),{leadingSlash:!0,trailingSlash:!1})', patched)
 
     def test_requires_index_and_js(self):
         with tempfile.TemporaryDirectory() as tmpdir:

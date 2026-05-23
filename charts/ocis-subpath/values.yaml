@@ -2,14 +2,14 @@ replicaCount: 1
 
 image:
   repository: ghcr.io/michibiki-io/ocis-subpath
-  tag: "8.0.3-subpath.1"
+  tag: "8.0.4-subpath.1"
   pullPolicy: IfNotPresent
 
 webAssetsPatcher:
   enabled: true
   image:
     repository: ghcr.io/michibiki-io/ocis-web-assets-patcher
-    tag: "web-v12.3.3-subpath.1"
+    tag: "web-v12.4.0-subpath.2"
     pullPolicy: IfNotPresent
   srcDist: /input/dist
   dstDist: /web-assets/dist
