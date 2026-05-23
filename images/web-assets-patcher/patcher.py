@@ -298,9 +298,9 @@ def patch_webdav_remote_base_path(content: str, subpath: str) -> tuple[str, int]
         url_join = match.group("url_join")
         options = "{leadingSlash:!0,trailingSlash:!1}"
         return (
-            f'const {decoded}=decodeURIComponent({href}),'
-            f'{prefix}={path_module}.normalize({path_module}.join({remote_base},"dav")),'
-            '__ocisDavPrefix="/dav";'
+            f'const __ocisDavPrefix="/dav",'
+            f'{decoded}=decodeURIComponent({href}),'
+            f'{prefix}={path_module}.normalize({path_module}.join({remote_base},"dav"));'
             f"return {href}?.startsWith({prefix})?"
             f'{url_join}({decoded}.replace({prefix},""),{options}):'
             f"{href}?.startsWith(__ocisDavPrefix)?"
