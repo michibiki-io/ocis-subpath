@@ -52,6 +52,10 @@ This is an image syntax example:
 
 ![Markdown logo alt text](https://commonmark.org/help/images/favicon.png)
 
+This is a same-folder image fixture:
+
+![Local Markdown fixture image](./markdown-local-image.svg)
+
 If the renderer blocks remote images, the alt text should still be handled safely.
 
 ## 6. Block quotes

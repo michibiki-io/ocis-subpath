@@ -14,6 +14,7 @@ from patcher import (
     patch_assets,
     inject_favicon_link,
     patch_graph_drive_server_url,
+    patch_markdown_image_sources,
     patch_signed_url_hash_path,
     patch_webdav_remote_base_path,
 )
@@ -87,6 +88,15 @@ class PatcherTests(unittest.TestCase):
             "return(await lm(t)).multistatus.response.map(({href:s,propstat:o})=>({}))};",
             encoding="utf-8",
         )
+        (src / "js" / "text-editor.mjs").write_text(
+            'const TK=Oe({__name:"TextEditor",props:{applicationConfig:{},currentContent:{},'
+            'markdownMode:{type:Boolean,default:!1},isReadOnly:{type:Boolean,default:!1},'
+            'resource:{},autoFocus:{type:Boolean,default:!0}},emits:["update:currentContent"],'
+            'setup(t){return eI({markdownItConfig(s){s.renderer.rules.link_open=function(l,u,c,d,p){'
+            'const f=l[u];return f.attrGet("href")&&(f.attrSet("target","_blank"),'
+            'f.attrSet("rel","noopener noreferrer")),p.renderToken(l,u,c)}}}),()=>{}}});',
+            encoding="utf-8",
+        )
         (src / "index.html").write_text(HTML_INDEX, encoding="utf-8")
         (src / "index.html.gz").write_text("stale", encoding="utf-8")
         (src / "oidc-callback.html").write_text(HTML_CALLBACK, encoding="utf-8")
@@ -151,6 +161,7 @@ class PatcherTests(unittest.TestCase):
             self.assertEqual(summary["patched_html"], ["index.html", "oidc-callback.html", "oidc-silent-redirect.html"])
             self.assertEqual(summary["patched_signed_url_hash_references"], 1)
             self.assertEqual(summary["patched_webdav_remote_base_path_references"], 1)
+            self.assertEqual(summary["patched_markdown_image_source_references"], 1)
 
     def test_patch_absolute_urls_only_when_enabled(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -246,6 +257,32 @@ class PatcherTests(unittest.TestCase):
         self.assertIn('__ocisDavPrefix="/dav"', patched)
         self.assertIn('s?.startsWith(__ocisDavPrefix)', patched)
         self.assertIn('de(o.replace(__ocisDavPrefix,""),{leadingSlash:!0,trailingSlash:!1})', patched)
+
+    def test_patch_markdown_image_sources_loads_relative_images_via_webdav_blob(self):
+        source = (
+            'const TK=Oe({__name:"TextEditor",props:{applicationConfig:{},currentContent:{},'
+            'markdownMode:{type:Boolean,default:!1},isReadOnly:{type:Boolean,default:!1},'
+            'resource:{},autoFocus:{type:Boolean,default:!0}},emits:["update:currentContent"],'
+            'setup(t){return eI({markdownItConfig(s){s.renderer.rules.link_open=function(l,u,c,d,p){'
+            'const f=l[u];return f.attrGet("href")&&(f.attrSet("target","_blank"),'
+            'f.attrSet("rel","noopener noreferrer")),p.renderToken(l,u,c)}}}),()=>{}}});'
+        )
+
+        patched, count = patch_markdown_image_sources(source, "/ocis", "custom-web")
+
+        self.assertEqual(count, 1)
+        self.assertIn("s.renderer.rules.image=function(l,u,c,d,p)", patched)
+        self.assertIn("t.resource?.webDavPath", patched)
+        self.assertIn("__ocisResolveMarkdownImageSrc=__ocisSrc=>", patched)
+        self.assertIn('__ocisMarkdownImageClientId="custom-web"', patched)
+        self.assertIn('e.endsWith(`:${__ocisMarkdownImageClientId}`)', patched)
+        self.assertNotIn('e.endsWith(":web")', patched)
+        self.assertIn('"data-ocis-markdown-image-src"', patched)
+        self.assertIn('fetch(e,{credentials:"same-origin"', patched)
+        self.assertIn("Authorization:`Bearer ${r}`", patched)
+        self.assertIn("URL.createObjectURL", patched)
+        self.assertIn("s.renderer.rules.link_open=function(l,u,c,d,p)", patched)
+        self.assertIn('f.attrSet("rel","noopener noreferrer")', patched)
 
     def test_requires_index_and_js(self):
         with tempfile.TemporaryDirectory() as tmpdir:

@@ -32,7 +32,7 @@ owncloud/web source
 
 ```bash
 OWNCLOUD_WEB_REF=v12.4.0 \
-IMAGE_NAME=ocis-web-assets-patcher:web-v12.4.0-subpath.2 \
+IMAGE_NAME=ocis-web-assets-patcher:web-v12.4.0-subpath.3 \
 ./scripts/build-patcher-image.sh
 ```
 
