@@ -28,6 +28,23 @@ helm template ocis charts/ocis-subpath \
 - When external OIDC is enabled, the origins from `ocis.oidc.issuer`, `ocis.oidc.authority`, and `ocis.oidc.metadataUrl` are added to `ocis.csp.directives.connect-src` even when `connect-src` is explicitly set in values.
 - Chart releases use independent Helm SemVer. Backend and patcher image tags are versioned separately and set through `values.yaml`.
 
+## Markdown images and CSP
+
+Relative Markdown images that point to files beside the Markdown document are handled by the patched Web assets and loaded through the subpath WebDAV route.
+
+External Markdown images are controlled by `ocis.csp.directives.img-src`. The default policy does not allow arbitrary remote image origins. Add only the required origins, for example:
+
+```yaml
+ocis:
+  csp:
+    directives:
+      img-src:
+        - "'self'"
+        - "data:"
+        - "blob:"
+        - "https://commonmark.org/"
+```
+
 ## External OIDC example
 
 ```yaml

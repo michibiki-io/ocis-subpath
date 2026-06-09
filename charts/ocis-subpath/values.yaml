@@ -9,7 +9,7 @@ webAssetsPatcher:
   enabled: true
   image:
     repository: ghcr.io/michibiki-io/ocis-web-assets-patcher
-    tag: "web-v12.4.0-subpath.2"
+    tag: "web-v12.4.0-subpath.3"
     pullPolicy: IfNotPresent
   srcDist: /input/dist
   dstDist: /web-assets/dist
@@ -85,6 +85,8 @@ ocis:
         - "'self'"
         - "blob:"
         - "https://embed.diagrams.net/"
+      # External Markdown images are intentionally not broadly allowed. Add
+      # specific origins here when Markdown files should render remote images.
       img-src:
         - "'self'"
         - "data:"

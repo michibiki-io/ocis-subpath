@@ -32,6 +32,7 @@ const scenarioPassword = process.env.E2E_SCENARIO_PASSWORD || 'E2e-User-Password
 const videoFileName = 'Big_Buck_Bunny_alt.webm'
 const zipFileName = 'Big_Buck_Bunny_alt.zip'
 const markdownFileName = 'commonmark-smoke.md'
+const markdownImageFileName = 'markdown-local-image.svg'
 const samplePdfFileName = 'sample.pdf'
 const videoSourceUrl =
   process.env.E2E_VIDEO_SOURCE_URL || 'https://upload.wikimedia.org/wikipedia/commons/8/88/Big_Buck_Bunny_alt.webm'
@@ -43,6 +44,7 @@ const videoDownloadAttempts = Math.max(
 )
 const resultsDir = path.resolve(__dirname, 'test-results')
 const markdownFixturePath = path.resolve(__dirname, 'fixtures/commonmark-smoke.md')
+const markdownImageFixturePath = path.resolve(__dirname, 'fixtures/markdown-local-image.svg')
 const samplePdfFixturePath = path.resolve(__dirname, 'fixtures/sample.pdf')
 const assetsDir = process.env.E2E_ASSET_CACHE_DIR
   ? path.resolve(process.env.E2E_ASSET_CACHE_DIR)
@@ -814,6 +816,51 @@ async function previewMarkdownFromUi(page: Page, fileName: string, expectedText:
   await fileEntry.dblclick()
   await expect(page).toHaveURL(new RegExp(`${escapedUrlPath(basePath)}/(preview|text-editor)/`), { timeout: 30_000 })
   await expect(page.locator('body')).toContainText('CommonMark Smoke Test', { timeout: 30_000 })
+  const localImage = page.locator('img[alt="Local Markdown fixture image"]').first()
+  await expect(localImage).toBeVisible({ timeout: 30_000 })
+  const imageState = await localImage.evaluate(async (node) => {
+    const image = node as HTMLImageElement
+    const waitForImage = () =>
+      new Promise<void>((resolve, reject) => {
+        if (image.complete && image.naturalWidth > 0) {
+          resolve()
+          return
+        }
+        const timeout = window.setTimeout(() => reject(new Error('markdown image load timed out')), 30_000)
+        image.addEventListener(
+          'load',
+          () => {
+            window.clearTimeout(timeout)
+            resolve()
+          },
+          { once: true }
+        )
+        image.addEventListener(
+          'error',
+          () => {
+            window.clearTimeout(timeout)
+            reject(new Error('markdown image failed to load'))
+          },
+          { once: true }
+        )
+      })
+
+    await waitForImage()
+    return {
+      currentSrc: image.currentSrc,
+      naturalHeight: image.naturalHeight,
+      naturalWidth: image.naturalWidth,
+      webDavSource: image.dataset.ocisMarkdownImageSrc || ''
+    }
+  })
+  expect(imageState.currentSrc).toMatch(/^blob:/)
+  expect(imageState.naturalWidth).toBeGreaterThan(0)
+  expect(imageState.naturalHeight).toBeGreaterThan(0)
+  expect(imageState.webDavSource).toBeTruthy()
+  const webDavSource = new URL(imageState.webDavSource, baseUrl)
+  expect(webDavSource.origin).toBe(new URL(baseUrl).origin)
+  expect(webDavSource.pathname).toContain(`${basePath}/dav/spaces/`)
+  expect(webDavSource.pathname.endsWith(`/${markdownImageFileName}`)).toBeTruthy()
   await page.keyboard.press('Control+End')
   await expect(page.locator('body')).toContainText(expectedText, { timeout: 30_000 })
 }
@@ -980,6 +1027,7 @@ test('Provisioned users, groups, spaces, markdown, and zip sharing work from a s
   const originalVideo = fs.readFileSync(videoFixturePath)
   const samplePdf = fs.readFileSync(samplePdfFixturePath)
   const markdown = fs.readFileSync(markdownFixturePath, 'utf8')
+  const markdownImage = fs.readFileSync(markdownImageFixturePath)
   const randomLine = `E2E random line ${crypto.randomUUID()}`
   const updatedMarkdown = `${markdown}\n\n${randomLine}\n`
   const sharePassword = `E2e-${Date.now()}!`
@@ -1039,6 +1087,8 @@ test('Provisioned users, groups, spaces, markdown, and zip sharing work from a s
     await openProjectSpaceFromUi(aliceRecording.page, 'sales')
 
     await deleteSpaceFile(aliceApi, aliceSalesDriveId, markdownFileName)
+    await deleteSpaceFile(aliceApi, aliceSalesDriveId, markdownImageFileName)
+    await putSpaceFile(aliceApi, aliceSalesDriveId, markdownImageFileName, 'image/svg+xml', markdownImage)
     await putSpaceFile(aliceApi, aliceSalesDriveId, markdownFileName, 'text/markdown; charset=utf-8', markdown)
     await aliceRecording.page.reload({ waitUntil: 'domcontentloaded' })
     await waitForStableLoad(aliceRecording.page)

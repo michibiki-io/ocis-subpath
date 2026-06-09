@@ -67,6 +67,19 @@ WEBDAV_REMOTE_BASE_PATH_PATTERN = re.compile(
     r"(?P<url_join>[A-Za-z_$][A-Za-z0-9_$]*)\((?P=decoded)\.replace\((?P=prefix),\"\"\),"
     r"\{leadingSlash:!0,trailingSlash:!1\}\):(?P=decoded)"
 )
+MARKDOWN_IMAGE_RENDERER_PATTERN = re.compile(
+    r"(?P<prefix>__name:\"TextEditor\".*?setup\((?P<props>[A-Za-z_$][A-Za-z0-9_$]*)\)"
+    r"\{.*?markdownItConfig\((?P<md>[A-Za-z_$][A-Za-z0-9_$]*)\)\{)"
+    r"(?P=md)\.renderer\.rules\.link_open=function\("
+    r"(?P<tokens>[A-Za-z_$][A-Za-z0-9_$]*),(?P<idx>[A-Za-z_$][A-Za-z0-9_$]*),"
+    r"(?P<options>[A-Za-z_$][A-Za-z0-9_$]*),(?P<env>[A-Za-z_$][A-Za-z0-9_$]*),"
+    r"(?P<self>[A-Za-z_$][A-Za-z0-9_$]*)\)\{"
+    r"const (?P<token>[A-Za-z_$][A-Za-z0-9_$]*)=(?P=tokens)\[(?P=idx)\];"
+    r"return (?P=token)\.attrGet\(\"href\"\)&&\((?P=token)\.attrSet\(\"target\",\"_blank\"\),"
+    r"(?P=token)\.attrSet\(\"rel\",\"noopener noreferrer\"\)\),"
+    r"(?P=self)\.renderToken\((?P=tokens),(?P=idx),(?P=options)\)\}",
+    re.DOTALL,
+)
 
 
 class PatcherError(RuntimeError):
@@ -311,6 +324,90 @@ def patch_webdav_remote_base_path(content: str, subpath: str) -> tuple[str, int]
     return WEBDAV_REMOTE_BASE_PATH_PATTERN.subn(replacement, content)
 
 
+def patch_markdown_image_sources(content: str, subpath: str) -> tuple[str, int]:
+    if subpath == "/":
+        return content, 0
+
+    def replacement(match: re.Match[str]) -> str:
+        prefix = match.group("prefix")
+        props = match.group("props")
+        md = match.group("md")
+        tokens = match.group("tokens")
+        idx = match.group("idx")
+        options = match.group("options")
+        env = match.group("env")
+        self_name = match.group("self")
+        token = match.group("token")
+        original_link_renderer = match.group(0)[len(prefix) :]
+        image_renderer = (
+            'const __ocisMarkdownImagePlaceholder="data:image/gif;base64,R0lGODlhAQABAAAAACw=",'
+            f"__ocisDefaultMarkdownImageRenderer={md}.renderer.rules.image,"
+            '__ocisEncodeMarkdownImagePath=t=>t.split("/").map((e,n)=>{'
+            'if(n===0&&e==="")return"";'
+            'try{e=decodeURIComponent(e)}catch{}'
+            'return encodeURIComponent(e)'
+            '}).join("/"),'
+            '__ocisMarkdownImageAccessToken=()=>{'
+            'try{for(let t=0;t<localStorage.length;t++){'
+            'const e=localStorage.key(t);'
+            'if(e?.startsWith("oc_oAuth.user:")&&e.endsWith(":web")){'
+            'const n=JSON.parse(localStorage.getItem(e)||"{}");'
+            'return n.access_token||n.accessToken||""'
+            "}}}catch{}return\"\"},"
+            '__ocisMarkdownImageCache=window.__ocisMarkdownImageCache||'
+            "(window.__ocisMarkdownImageCache=new Map),"
+            '__ocisLoadMarkdownImage=async t=>{'
+            'const e=t.getAttribute("data-ocis-markdown-image-src");'
+            'if(!e||t.getAttribute("data-ocis-markdown-image-state")==="loaded"||'
+            't.getAttribute("data-ocis-markdown-image-state")==="loading")return;'
+            't.setAttribute("data-ocis-markdown-image-state","loading");'
+            "try{"
+            'let n=__ocisMarkdownImageCache.get(e);'
+            "if(!n){"
+            "const r=__ocisMarkdownImageAccessToken(),"
+            'i=await fetch(e,{credentials:"same-origin",headers:r?{Authorization:`Bearer ${r}`}:{}});'
+            'if(!i.ok)throw new Error(`Markdown image request failed: ${i.status}`);'
+            "n=URL.createObjectURL(await i.blob()),__ocisMarkdownImageCache.set(e,n)"
+            "}"
+            't.src=n,t.setAttribute("data-ocis-markdown-image-state","loaded")'
+            "}catch(n){console.error(n),t.setAttribute(\"data-ocis-markdown-image-state\",\"error\")}"
+            "},"
+            '__ocisProcessMarkdownImages=()=>document.querySelectorAll('
+            '"img[data-ocis-markdown-image-src]").forEach(__ocisLoadMarkdownImage),'
+            "__ocisStartMarkdownImageLoader=()=>{"
+            "if(!window.__ocisMarkdownImageObserver&&document.body){"
+            "window.__ocisMarkdownImageObserver=new MutationObserver(__ocisProcessMarkdownImages),"
+            'window.__ocisMarkdownImageObserver.observe(document.body,{childList:!0,subtree:!0})'
+            "}"
+            "setTimeout(__ocisProcessMarkdownImages,0)"
+            "},"
+            "__ocisResolveMarkdownImageSrc=__ocisSrc=>{"
+            'if(!__ocisSrc||/^[?#]/.test(__ocisSrc)||/^[a-z][a-z0-9+.-]*:/i.test(__ocisSrc)||'
+            '__ocisSrc.startsWith("//")||__ocisSrc.startsWith("/"))return"";'
+            f"const e={props}.resource?.webDavPath;"
+            'if(!e)return"";'
+            "try{"
+            'const n=String(e).startsWith("/")?String(e):`/${e}`,'
+            'r=new URL(String(__ocisSrc),`https://ocis.invalid${n.replace(/\\/[^/]*$/,"/")}`),'
+            'i=new URL(document.baseURI).pathname.replace(/\\/$/,"");'
+            'return`${i&&i!=="/"?i:""}/dav${__ocisEncodeMarkdownImagePath(r.pathname)}${r.search}${r.hash}`'
+            '}catch{return""}'
+            "};"
+            f"{md}.renderer.rules.image=function({tokens},{idx},{options},{env},{self_name}){{"
+            f"const {token}={tokens}[{idx}],__ocisMarkdownImageSrc={token}.attrGet(\"src\"),"
+            "__ocisResolvedMarkdownImageSrc=__ocisResolveMarkdownImageSrc(__ocisMarkdownImageSrc);"
+            f"return __ocisResolvedMarkdownImageSrc&&({token}.attrSet(\"data-ocis-markdown-image-src\","
+            f"__ocisResolvedMarkdownImageSrc),{token}.attrSet(\"src\",__ocisMarkdownImagePlaceholder),"
+            "__ocisStartMarkdownImageLoader()),"
+            f"__ocisDefaultMarkdownImageRenderer?__ocisDefaultMarkdownImageRenderer.call(this,{tokens},{idx},{options},{env},{self_name}):"
+            f"{self_name}.renderToken({tokens},{idx},{options})"
+            "},"
+        )
+        return f"{prefix}{image_renderer}{original_link_renderer}"
+
+    return MARKDOWN_IMAGE_RENDERER_PATTERN.subn(replacement, content)
+
+
 def remove_precompressed_variants(path: Path) -> list[str]:
     removed: list[str] = []
     for suffix in (".gz", ".br"):
@@ -398,6 +495,7 @@ def patch_assets(
     signed_url_hash_changes = 0
     graph_drive_server_url_changes = 0
     webdav_remote_base_path_changes = 0
+    markdown_image_source_changes = 0
 
     for html_name in HTML_FILES:
         html_path = dst_dir / html_name
@@ -454,6 +552,9 @@ def patch_assets(
             patched, count = patch_webdav_remote_base_path(patched, subpath)
             if count:
                 webdav_remote_base_path_changes += count
+            patched, count = patch_markdown_image_sources(patched, subpath)
+            if count:
+                markdown_image_source_changes += count
             if patched != content:
                 asset_path.write_text(patched, encoding="utf-8")
                 removed_variants.extend(remove_precompressed_variants(asset_path))
@@ -487,6 +588,7 @@ def patch_assets(
         "patched_signed_url_hash_references": signed_url_hash_changes,
         "patched_graph_drive_server_url_references": graph_drive_server_url_changes,
         "patched_webdav_remote_base_path_references": webdav_remote_base_path_changes,
+        "patched_markdown_image_source_references": markdown_image_source_changes,
     }
 
 
