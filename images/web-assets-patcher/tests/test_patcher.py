@@ -268,12 +268,15 @@ class PatcherTests(unittest.TestCase):
             'f.attrSet("rel","noopener noreferrer")),p.renderToken(l,u,c)}}}),()=>{}}});'
         )
 
-        patched, count = patch_markdown_image_sources(source, "/ocis")
+        patched, count = patch_markdown_image_sources(source, "/ocis", "custom-web")
 
         self.assertEqual(count, 1)
         self.assertIn("s.renderer.rules.image=function(l,u,c,d,p)", patched)
         self.assertIn("t.resource?.webDavPath", patched)
         self.assertIn("__ocisResolveMarkdownImageSrc=__ocisSrc=>", patched)
+        self.assertIn('__ocisMarkdownImageClientId="custom-web"', patched)
+        self.assertIn('e.endsWith(`:${__ocisMarkdownImageClientId}`)', patched)
+        self.assertNotIn('e.endsWith(":web")', patched)
         self.assertIn('"data-ocis-markdown-image-src"', patched)
         self.assertIn('fetch(e,{credentials:"same-origin"', patched)
         self.assertIn("Authorization:`Bearer ${r}`", patched)

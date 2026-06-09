@@ -324,7 +324,7 @@ def patch_webdav_remote_base_path(content: str, subpath: str) -> tuple[str, int]
     return WEBDAV_REMOTE_BASE_PATH_PATTERN.subn(replacement, content)
 
 
-def patch_markdown_image_sources(content: str, subpath: str) -> tuple[str, int]:
+def patch_markdown_image_sources(content: str, subpath: str, oidc_client_id: str = "web") -> tuple[str, int]:
     if subpath == "/":
         return content, 0
 
@@ -339,8 +339,10 @@ def patch_markdown_image_sources(content: str, subpath: str) -> tuple[str, int]:
         self_name = match.group("self")
         token = match.group("token")
         original_link_renderer = match.group(0)[len(prefix) :]
+        js_oidc_client_id = json.dumps(oidc_client_id)
         image_renderer = (
             'const __ocisMarkdownImagePlaceholder="data:image/gif;base64,R0lGODlhAQABAAAAACw=",'
+            f"__ocisMarkdownImageClientId={js_oidc_client_id},"
             f"__ocisDefaultMarkdownImageRenderer={md}.renderer.rules.image,"
             '__ocisEncodeMarkdownImagePath=t=>t.split("/").map((e,n)=>{'
             'if(n===0&&e==="")return"";'
@@ -350,7 +352,7 @@ def patch_markdown_image_sources(content: str, subpath: str) -> tuple[str, int]:
             '__ocisMarkdownImageAccessToken=()=>{'
             'try{for(let t=0;t<localStorage.length;t++){'
             'const e=localStorage.key(t);'
-            'if(e?.startsWith("oc_oAuth.user:")&&e.endsWith(":web")){'
+            'if(e?.startsWith("oc_oAuth.user:")&&e.endsWith(`:${__ocisMarkdownImageClientId}`)){'
             'const n=JSON.parse(localStorage.getItem(e)||"{}");'
             'return n.access_token||n.accessToken||""'
             "}}}catch{}return\"\"},"
@@ -552,7 +554,7 @@ def patch_assets(
             patched, count = patch_webdav_remote_base_path(patched, subpath)
             if count:
                 webdav_remote_base_path_changes += count
-            patched, count = patch_markdown_image_sources(patched, subpath)
+            patched, count = patch_markdown_image_sources(patched, subpath, oidc_client_id)
             if count:
                 markdown_image_source_changes += count
             if patched != content:
