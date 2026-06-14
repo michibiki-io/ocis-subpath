@@ -8,4 +8,4 @@ web:
   upstreamRef: v12.4.0
   repo: https://github.com/owncloud/web.git
 patcher:
-  imageTag: web-v12.4.0-subpath.3
+  imageTag: web-v12.4.0-subpath.4
