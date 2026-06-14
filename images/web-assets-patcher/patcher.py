@@ -383,10 +383,18 @@ def patch_markdown_image_sources(content: str, subpath: str, oidc_client_id: str
             "}"
             "setTimeout(__ocisProcessMarkdownImages,0)"
             "},"
+            "__ocisPublicMarkdownWebDavPath=()=>{"
+            "try{"
+            'const t=new URL(document.baseURI).pathname.replace(/\\/$/,""),'
+            'e=t&&location.pathname.startsWith(`${t}/`)?location.pathname.slice(t.length):location.pathname,'
+            'n=e.match(/^\\/(?:text-editor|preview)\\/public\\/([^/]+)(?:\\/(.*))?$/);'
+            'return n?`/public-files/${encodeURIComponent(decodeURIComponent(n[1]))}${n[2]?`/${n[2]}`:""}`:""'
+            '}catch{return""}'
+            "},"
             "__ocisResolveMarkdownImageSrc=__ocisSrc=>{"
             'if(!__ocisSrc||/^[?#]/.test(__ocisSrc)||/^[a-z][a-z0-9+.-]*:/i.test(__ocisSrc)||'
             '__ocisSrc.startsWith("//")||__ocisSrc.startsWith("/"))return"";'
-            f"const e={props}.resource?.webDavPath;"
+            f"const e=__ocisPublicMarkdownWebDavPath()||{props}.resource?.webDavPath;"
             'if(!e)return"";'
             "try{"
             'const n=String(e).startsWith("/")?String(e):`/${e}`,'
