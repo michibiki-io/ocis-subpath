@@ -356,6 +356,30 @@ def patch_markdown_image_sources(content: str, subpath: str, oidc_client_id: str
             'const n=JSON.parse(localStorage.getItem(e)||"{}");'
             'return n.access_token||n.accessToken||""'
             "}}}catch{}return\"\"},"
+            "__ocisPublicMarkdownRoute=()=>{"
+            "try{"
+            'const t=new URL(document.baseURI).pathname.replace(/\\/$/,""),'
+            'e=t&&location.pathname.startsWith(`${t}/`)?location.pathname.slice(t.length):location.pathname,'
+            'n=e.match(/^\\/(?:text-editor|preview)\\/public\\/([^/]+)(?:\\/(.*))?$/);'
+            'if(!n)return null;'
+            'const r=decodeURIComponent(n[1]);'
+            'return{token:r,webDavPath:`/public-files/${encodeURIComponent(r)}${n[2]?`/${n[2]}`:""}`}'
+            '}catch{return null}'
+            "},"
+            "__ocisPublicMarkdownPassword=t=>{"
+            "try{"
+            'const e=sessionStorage.getItem(`oc.publicLink.${t}.password`);'
+            'if(!e)return"";'
+            'try{return decodeURIComponent(escape(atob(e)))}catch{return atob(e)}'
+            '}catch{return""}'
+            "},"
+            "__ocisMarkdownImageRequestHeaders=()=>{"
+            "const t=__ocisPublicMarkdownRoute();"
+            'if(t){const e={"public-token":t.token},n=__ocisPublicMarkdownPassword(t.token);'
+            'return n&&(e.Authorization=`Basic ${btoa(unescape(encodeURIComponent(`public:${n}`)))}`),e}'
+            "const e=__ocisMarkdownImageAccessToken();"
+            'return e?{Authorization:`Bearer ${e}`}:{}}'
+            ","
             '__ocisMarkdownImageCache=window.__ocisMarkdownImageCache||'
             "(window.__ocisMarkdownImageCache=new Map),"
             '__ocisLoadMarkdownImage=async t=>{'
@@ -366,8 +390,8 @@ def patch_markdown_image_sources(content: str, subpath: str, oidc_client_id: str
             "try{"
             'let n=__ocisMarkdownImageCache.get(e);'
             "if(!n){"
-            "const r=__ocisMarkdownImageAccessToken(),"
-            'i=await fetch(e,{credentials:"same-origin",headers:r?{Authorization:`Bearer ${r}`}:{}});'
+            "const r=__ocisMarkdownImageRequestHeaders(),"
+            'i=await fetch(e,{credentials:"same-origin",headers:r});'
             'if(!i.ok)throw new Error(`Markdown image request failed: ${i.status}`);'
             "n=URL.createObjectURL(await i.blob()),__ocisMarkdownImageCache.set(e,n)"
             "}"
@@ -384,12 +408,8 @@ def patch_markdown_image_sources(content: str, subpath: str, oidc_client_id: str
             "setTimeout(__ocisProcessMarkdownImages,0)"
             "},"
             "__ocisPublicMarkdownWebDavPath=()=>{"
-            "try{"
-            'const t=new URL(document.baseURI).pathname.replace(/\\/$/,""),'
-            'e=t&&location.pathname.startsWith(`${t}/`)?location.pathname.slice(t.length):location.pathname,'
-            'n=e.match(/^\\/(?:text-editor|preview)\\/public\\/([^/]+)(?:\\/(.*))?$/);'
-            'return n?`/public-files/${encodeURIComponent(decodeURIComponent(n[1]))}${n[2]?`/${n[2]}`:""}`:""'
-            '}catch{return""}'
+            'const t=__ocisPublicMarkdownRoute();'
+            'return t?.webDavPath||""'
             "},"
             "__ocisResolveMarkdownImageSrc=__ocisSrc=>{"
             'if(!__ocisSrc||/^[?#]/.test(__ocisSrc)||/^[a-z][a-z0-9+.-]*:/i.test(__ocisSrc)||'
