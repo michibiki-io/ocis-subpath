@@ -1,0 +1,34 @@
+name: release-consistency
+
+on:
+  pull_request:
+    paths:
+      - "release.yaml"
+      - "charts/ocis-subpath/**"
+      - "images/ocis-subpath/**"
+      - "images/web-assets-patcher/**"
+      - "scripts/build-patcher-image.sh"
+      - "scripts/release/**"
+      - ".github/workflows/release-consistency.yml"
+      - ".github/workflows/track-upstream.yml"
+
+jobs:
+  release-consistency:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Check release defaults
+        run: |
+          set -euo pipefail
+          GITHUB_OUTPUT= python3 scripts/release/sync_chart_defaults.py \
+            --check \
+            --base-ref "${{ github.event.pull_request.base.sha }}"
+
+      - name: Run release helper tests
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s scripts/release/tests -p 'test_*.py'
