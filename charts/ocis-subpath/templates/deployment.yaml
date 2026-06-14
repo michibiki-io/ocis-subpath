@@ -1,6 +1,11 @@
 {{- $csp := .Values.ocis.csp | default dict -}}
 {{- $externalIDP := .Values.ocis.oidc.external.enabled -}}
 {{- $roleAssignment := .Values.ocis.roleAssignment | default dict -}}
+{{- $deploymentStrategy := deepCopy (.Values.deploymentStrategy | default (dict "type" "Recreate")) -}}
+{{- if eq (default "Recreate" (get $deploymentStrategy "type")) "Recreate" -}}
+{{- $_ := set $deploymentStrategy "type" "Recreate" -}}
+{{- $_ := set $deploymentStrategy "rollingUpdate" nil -}}
+{{- end -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -11,7 +16,7 @@ metadata:
 spec:
   replicas: {{ .Values.replicaCount }}
   strategy:
-    {{- toYaml (.Values.deploymentStrategy | default (dict "type" "Recreate")) | nindent 4 }}
+    {{- toYaml $deploymentStrategy | nindent 4 }}
   selector:
     matchLabels:
       {{- include "ocis-subpath.selectorLabels" . | nindent 6 }}

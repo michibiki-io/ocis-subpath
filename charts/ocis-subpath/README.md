@@ -31,7 +31,7 @@ helm template ocis charts/ocis-subpath \
 
 ## Deployment strategy and RWO PVCs
 
-The chart renders `spec.strategy.type: Recreate` by default. This avoids creating a second oCIS pod during upgrades while the old pod is still using the default `ReadWriteOnce` `ocis-data` and `ocis-config` PVCs. Without this setting, Kubernetes defaults Deployments to `RollingUpdate`, which can trigger Multi-Attach errors on storage backends that enforce single-node attachment.
+The chart renders `spec.strategy.type: Recreate` by default. This avoids creating a second oCIS pod during upgrades while the old pod is still using the default `ReadWriteOnce` `ocis-data` and `ocis-config` PVCs. Without this setting, Kubernetes defaults Deployments to `RollingUpdate`, which can trigger Multi-Attach errors on storage backends that enforce single-node attachment. For upgrades from chart versions that did not render `spec.strategy`, the chart also renders `rollingUpdate: null` with `Recreate` so Helm removes any live default `rollingUpdate` field during the migration.
 
 ```yaml
 deploymentStrategy:
