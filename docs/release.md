@@ -85,7 +85,7 @@ Release triggers:
 - Merge a PR labeled `release-on-merge`
 - Manual workflow: `Release Helm chart`
 
-Update `charts/ocis-subpath/Chart.yaml` and `charts/ocis-subpath/values.yaml` through a PR before cutting a chart release. The chart should point to released backend and patcher image tags by default.
+Update `charts/ocis-subpath/Chart.yaml` and `charts/ocis-subpath/values.yaml` through a PR before cutting a chart release. The manual chart release workflow does not accept a version override; it packages the version declared in `Chart.yaml`. The chart should point to released backend and patcher image tags by default.
 
 ## Upstream Tracking
 

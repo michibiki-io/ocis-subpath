@@ -12,6 +12,47 @@
       "type": "integer",
       "minimum": 1
     },
+    "deploymentStrategy": {
+      "type": "object",
+      "required": ["type"],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "required": ["type"],
+            "properties": {
+              "type": { "const": "Recreate" }
+            }
+          },
+          "then": {
+            "not": {
+              "required": ["rollingUpdate"]
+            }
+          }
+        }
+      ],
+      "properties": {
+        "type": { "type": "string", "enum": ["Recreate", "RollingUpdate"] },
+        "rollingUpdate": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "maxSurge": {
+              "oneOf": [
+                { "type": "integer", "minimum": 0 },
+                { "type": "string", "pattern": "^[0-9]+%$" }
+              ]
+            },
+            "maxUnavailable": {
+              "oneOf": [
+                { "type": "integer", "minimum": 0 },
+                { "type": "string", "pattern": "^[0-9]+%$" }
+              ]
+            }
+          }
+        }
+      }
+    },
     "image": {
       "type": "object",
       "required": ["repository", "tag", "pullPolicy"],

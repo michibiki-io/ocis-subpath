@@ -1,5 +1,8 @@
 replicaCount: 1
 
+deploymentStrategy:
+  type: Recreate
+
 image:
   repository: ghcr.io/michibiki-io/ocis-subpath
   tag: "8.0.4-subpath.1"

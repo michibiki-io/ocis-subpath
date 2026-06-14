@@ -10,6 +10,8 @@ metadata:
     app.kubernetes.io/component: app
 spec:
   replicas: {{ .Values.replicaCount }}
+  strategy:
+    {{- toYaml (.Values.deploymentStrategy | default (dict "type" "Recreate")) | nindent 4 }}
   selector:
     matchLabels:
       {{- include "ocis-subpath.selectorLabels" . | nindent 6 }}
