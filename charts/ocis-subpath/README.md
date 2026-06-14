@@ -26,7 +26,27 @@ helm template ocis charts/ocis-subpath \
 - The chart routes Web fallback, frontend APIs, IDP, discovery, backend API, and capabilities paths separately when using the builtin IDP. Subpath prefixes are stripped from backend API, frontend API, and capabilities requests before they reach their services.
 - Set `ocis.oidc.external.enabled=true` with `ocis.oidc.issuer` or `ocis.oidc.authority` to use an external IDP. In that mode the chart does not render builtin IDP `IngressRoute` resources or the IDP `Service`.
 - When external OIDC is enabled, the origins from `ocis.oidc.issuer`, `ocis.oidc.authority`, and `ocis.oidc.metadataUrl` are added to `ocis.csp.directives.connect-src` even when `connect-src` is explicitly set in values.
+- `deploymentStrategy.type` defaults to `Recreate` because `persistence.data` and `persistence.config` are enabled by default and use `ReadWriteOnce` PVCs.
 - Chart releases use independent Helm SemVer. Backend and patcher image tags are versioned separately and set through `values.yaml`.
+
+## Deployment strategy and RWO PVCs
+
+The chart renders `spec.strategy.type: Recreate` by default. This avoids creating a second oCIS pod during upgrades while the old pod is still using the default `ReadWriteOnce` `ocis-data` and `ocis-config` PVCs. Without this setting, Kubernetes defaults Deployments to `RollingUpdate`, which can trigger Multi-Attach errors on storage backends that enforce single-node attachment. For upgrades from chart versions that did not render `spec.strategy`, the chart also renders `rollingUpdate: null` with `Recreate` so Helm removes any live default `rollingUpdate` field during the migration.
+
+```yaml
+deploymentStrategy:
+  type: Recreate
+```
+
+If your deployment does not use `ReadWriteOnce` persistence, or your storage and application topology can safely tolerate concurrent pods, you can opt back into rolling updates:
+
+```yaml
+deploymentStrategy:
+  type: RollingUpdate
+  rollingUpdate:
+    maxSurge: 1
+    maxUnavailable: 0
+```
 
 ## Markdown images and CSP
 

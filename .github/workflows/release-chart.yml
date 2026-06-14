@@ -5,11 +5,6 @@ on:
     types:
       - closed
   workflow_dispatch:
-    inputs:
-      chart_version:
-        description: "Chart SemVer. Leave empty to use Chart.yaml."
-        required: false
-        default: ""
 
 permissions:
   contents: write
@@ -41,7 +36,6 @@ jobs:
         env:
           EVENT_NAME: ${{ github.event_name }}
           REF_NAME: ${{ github.ref_name }}
-          INPUT_CHART_VERSION: ${{ inputs.chart_version }}
           PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           PR_HEAD_SHA: ${{ github.event.pull_request.merge_commit_sha }}
           GITHUB_TOKEN: ${{ github.token }}
@@ -65,10 +59,6 @@ jobs:
             chart_version="${chart_version}"
             app_version="${chart_app_version}"
             git_tag="${chart_git_tag}"
-            create_tag="true"
-          elif [ -n "${INPUT_CHART_VERSION}" ]; then
-            release_chart="true"
-            chart_version="${INPUT_CHART_VERSION#v}"
             create_tag="true"
           else
             release_chart="true"
@@ -118,8 +108,6 @@ jobs:
           mkdir -p dist/charts
           helm lint ./charts/ocis-subpath
           helm package ./charts/ocis-subpath \
-            --version "${{ steps.vars.outputs.chart_version }}" \
-            --app-version "${{ steps.vars.outputs.app_version }}" \
             --destination dist/charts
 
       - name: Log in to GHCR for Helm
