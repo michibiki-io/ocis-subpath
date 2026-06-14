@@ -85,7 +85,15 @@ Release triggers:
 - Merge a PR labeled `release-on-merge`
 - Manual workflow: `Release Helm chart`
 
-Update `charts/ocis-subpath/Chart.yaml` and `charts/ocis-subpath/values.yaml` through a PR before cutting a chart release. The manual chart release workflow does not accept a version override; it packages the version declared in `Chart.yaml`. The chart should point to released backend and patcher image tags by default.
+`release.yaml` is the source of truth for the default backend and patcher image tags. Run this helper after changing those tags:
+
+```bash
+python3 scripts/release/sync_chart_defaults.py
+```
+
+It updates `charts/ocis-subpath/values.yaml`, bumps the chart patch version, and keeps `appVersion` aligned with the backend image tag. PR CI and release-on-merge workflows run `python3 scripts/release/sync_chart_defaults.py --check` and fail if the chart defaults drift from `release.yaml`, or if chart defaults changed without a chart version change.
+
+The manual chart release workflow does not accept a version override; it packages the version declared in `Chart.yaml`. The chart should point to released backend and patcher image tags by default.
 
 ## Upstream Tracking
 
@@ -107,6 +115,8 @@ The draft PR updates:
 - `charts/ocis-subpath/Chart.yaml` chart patch version and `appVersion`
 - `docs/e2e.md` example patcher image tag
 
+The tracking script calls `scripts/release/sync_chart_defaults.py` even when only a prior `release.yaml` / chart-default drift needs correction, so the generated draft PR also repairs default image tag drift.
+
 The expected flow is:
 
 1. Upstream tracking opens an issue.
@@ -127,7 +137,7 @@ After the bootstrap releases exist, unchanged release targets are skipped again 
 
 ## Patcher-only changes
 
-When only the patcher implementation changes, backend is not released because no backend-tracked files changed. Update `release.yaml` only for the patcher image tag:
+When only the patcher implementation changes, backend is not released because no backend-tracked files changed. Update `release.yaml` for the patcher image tag:
 
 ```yaml
 release:
@@ -137,7 +147,7 @@ patcher:
   imageTag: web-v12.3.3-subpath.2
 ```
 
-If `charts/ocis-subpath/values.yaml` is also updated to point at the new patcher image by default, the chart release is inferred automatically. If chart defaults are unchanged, only the patcher image is released.
+Then run `python3 scripts/release/sync_chart_defaults.py`. This updates the Helm chart defaults and bumps the chart patch version, so the patcher image and chart are released together when the default patcher image changes.
 
 For a patcher logic change against the same ownCloud Web version, increment the `subpath.N` suffix in `patcher.imageTag`, because the generated patched asset behavior changed for the same upstream Web ref.
 

@@ -47,6 +47,7 @@ jobs:
 
           if [ "${EVENT_NAME}" = "pull_request" ]; then
             git fetch --force --tags origin
+            GITHUB_OUTPUT= python3 scripts/release/sync_chart_defaults.py --check --base-ref "${PR_BASE_SHA}"
             original_output="${GITHUB_OUTPUT}"
             tmp_output="$(mktemp)"
             GITHUB_OUTPUT="${tmp_output}" python3 scripts/release/read_release.py \
