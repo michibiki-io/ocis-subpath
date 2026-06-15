@@ -2,6 +2,7 @@
 {{- $externalIDP := .Values.ocis.oidc.external.enabled -}}
 {{- $roleAssignment := .Values.ocis.roleAssignment | default dict -}}
 {{- $deploymentStrategy := deepCopy (.Values.deploymentStrategy | default (dict "type" "Recreate")) -}}
+{{- include "ocis-subpath.validateDrawio" . -}}
 {{- if eq (default "Recreate" (get $deploymentStrategy "type")) "Recreate" -}}
 {{- $_ := set $deploymentStrategy "type" "Recreate" -}}
 {{- $_ := set $deploymentStrategy "rollingUpdate" nil -}}
@@ -79,6 +80,10 @@ spec:
               value: {{ toJson .Values.webAssetsPatcher.options | quote }}
             - name: WEB_EXTRA_CONFIG_JSON
               value: {{ toJson .Values.webAssetsPatcher.extraConfig | quote }}
+            {{- if .Values.drawio.enabled }}
+            - name: WEB_DRAWIO_CONFIG_JSON
+              value: {{ include "ocis-subpath.drawioConfig" . | quote }}
+            {{- end }}
             - name: PATCH_ABSOLUTE_URLS
               value: {{ ternary "true" "false" .Values.webAssetsPatcher.patchAbsoluteUrls | quote }}
           volumeMounts:

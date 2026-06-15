@@ -96,6 +96,37 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end -}}
 {{- end -}}
 
+{{- define "ocis-subpath.validateDrawio" -}}
+{{- if .Values.drawio.enabled -}}
+{{- if not .Values.webAssetsPatcher.enabled -}}
+{{- fail "drawio.enabled=true requires webAssetsPatcher.enabled=true because the patcher generates the draw.io Web app assets and config" -}}
+{{- end -}}
+{{- $origin := include "ocis-subpath.urlOrigin" .Values.drawio.editorUrl | trim -}}
+{{- if not $origin -}}
+{{- fail "drawio.editorUrl must be an absolute http(s) URL" -}}
+{{- end -}}
+{{- if ne .Values.drawio.protocol "json" -}}
+{{- fail "drawio.protocol currently only supports json" -}}
+{{- end -}}
+{{- if and (not .Values.drawio.formats.drawio.enabled) (not .Values.drawio.formats.drawioSvg.enabled) -}}
+{{- fail "drawio.enabled=true requires at least one enabled drawio format" -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{- define "ocis-subpath.drawioConfig" -}}
+{{- include "ocis-subpath.validateDrawio" . -}}
+{{- if .Values.drawio.enabled -}}
+{{- $formats := dict -}}
+{{- $_ := set $formats "drawio" (dict "enabled" .Values.drawio.formats.drawio.enabled "extension" .Values.drawio.formats.drawio.extension "mimeType" .Values.drawio.formats.drawio.mimeType) -}}
+{{- $_ := set $formats "drawioSvg" (dict "enabled" .Values.drawio.formats.drawioSvg.enabled "extension" .Values.drawio.formats.drawioSvg.extension "mimeType" .Values.drawio.formats.drawioSvg.mimeType) -}}
+{{- $webApp := dict "enabled" .Values.drawio.webApp.enabled "name" .Values.drawio.webApp.name "path" .Values.drawio.webApp.path "displayName" .Values.drawio.webApp.displayName -}}
+{{- toJson (dict "enabled" true "editorUrl" .Values.drawio.editorUrl "ui" .Values.drawio.ui "protocol" .Values.drawio.protocol "formats" $formats "webApp" $webApp) -}}
+{{- else -}}
+{}
+{{- end -}}
+{{- end -}}
+
 {{- define "ocis-subpath.cspDirectives" -}}
 {{- $csp := .Values.ocis.csp | default dict -}}
 {{- $directives := deepCopy ($csp.directives | default dict) -}}
@@ -108,6 +139,13 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end -}}
 {{- end -}}
 {{- $_ := set $directives "connect-src" (uniq $connectSrc) -}}
+{{- end -}}
+{{- if and .Values.drawio.enabled .Values.drawio.csp.enabled -}}
+{{- include "ocis-subpath.validateDrawio" . -}}
+{{- $frameSrc := get $directives "frame-src" | default list -}}
+{{- $drawioOrigin := include "ocis-subpath.urlOrigin" .Values.drawio.editorUrl | trim -}}
+{{- $frameSrc = append $frameSrc $drawioOrigin -}}
+{{- $_ := set $directives "frame-src" (uniq $frameSrc) -}}
 {{- end -}}
 {{- toYaml $directives -}}
 {{- end -}}

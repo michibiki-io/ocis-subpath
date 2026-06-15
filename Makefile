@@ -1,6 +1,6 @@
 PYTHON ?= python3
 
-.PHONY: build-patcher helm-lint helm-template helm-template-role-assignment compose-up compose-down compose-reset e2e e2e-shell e2e-runner e2e-helm-kind clean
+.PHONY: build-patcher helm-lint helm-template helm-template-role-assignment helm-template-drawio compose-up compose-down compose-reset e2e e2e-shell e2e-runner e2e-helm-kind clean
 
 build-patcher:
 	./scripts/build-patcher-image.sh
@@ -13,6 +13,9 @@ helm-template:
 
 helm-template-role-assignment:
 	./scripts/helm-template-role-assignment.sh
+
+helm-template-drawio:
+	./scripts/helm-template-drawio.sh
 
 compose-up:
 	./scripts/compose/up.sh

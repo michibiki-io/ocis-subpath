@@ -26,6 +26,7 @@ KEEP_CLUSTER="${KEEP_CLUSTER:-false}"
 KEEP_ON_FAILURE="${KEEP_ON_FAILURE:-true}"
 KUBECONFIG_PATH="${KUBECONFIG_PATH:-${ROOT_DIR}/.tmp/kind-${CLUSTER_NAME}.kubeconfig}"
 KIND_CONFIG_PATH="${KIND_CONFIG_PATH:-${ROOT_DIR}/.tmp/kind-${CLUSTER_NAME}.yaml}"
+KIND_NODE_IMAGE="${KIND_NODE_IMAGE:-kindest/node:v1.31.0}"
 TMP_DIR="${ROOT_DIR}/.tmp"
 
 PATCHER_IMAGE_REPOSITORY="${PATCHER_IMAGE_REPOSITORY:-ocis-web-assets-patcher}"
@@ -38,6 +39,8 @@ OCIS_IMAGE_NAME="${OCIS_IMAGE_NAME:-${OCIS_IMAGE_REPOSITORY}:${OCIS_IMAGE_TAG}}"
 OCIS_IMAGE_PULL_POLICY="${OCIS_IMAGE_PULL_POLICY:-IfNotPresent}"
 E2E_USERNAME="${E2E_USERNAME:-admin}"
 E2E_PASSWORD="${E2E_PASSWORD:-admin}"
+E2E_DRAWIO_ENABLED="${E2E_DRAWIO_ENABLED:-false}"
+E2E_DRAWIO_EDITOR_URL="${E2E_DRAWIO_EDITOR_URL:-https://embed.diagrams.net/}"
 SUBPATH="$(e2e_subpath)"
 
 log() {
@@ -168,6 +171,7 @@ kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
 nodes:
   - role: control-plane
+    image: ${KIND_NODE_IMAGE}
     extraPortMappings:
       - containerPort: ${LOCAL_PORT}
         hostPort: ${LOCAL_PORT}
@@ -218,6 +222,14 @@ kctl -n "${NAMESPACE}" create secret generic ocis-e2e-secrets \
   --from-literal=machine-auth-api-key=insecure-dev-machine-auth-key-change-me \
   --dry-run=client -o yaml | kctl apply -f -
 
+drawio_helm_args=()
+if [[ "${E2E_DRAWIO_ENABLED}" =~ ^(1|true|yes|on)$ ]]; then
+  drawio_helm_args+=(
+    --set "drawio.enabled=true"
+    --set "drawio.editorUrl=${E2E_DRAWIO_EDITOR_URL}"
+  )
+fi
+
 log "installing Helm release..."
 hctl upgrade --install "${RELEASE_NAME}" charts/ocis-subpath \
   --namespace "${NAMESPACE}" \
@@ -236,6 +248,7 @@ hctl upgrade --install "${RELEASE_NAME}" charts/ocis-subpath \
   --set "persistence.data.enabled=false" \
   --set "persistence.config.enabled=false" \
   --set "persistence.webAssets.enabled=false" \
+  "${drawio_helm_args[@]}" \
   --set-json "hostAliases=[{\"ip\":\"${KIND_NODE_IP}\",\"hostnames\":[\"${INGRESS_HOST}\"]}]" \
   --set "webAssetsPatcher.image.repository=${PATCHER_IMAGE_REPOSITORY}" \
   --set "webAssetsPatcher.image.tag=${PATCHER_IMAGE_TAG}" \
@@ -269,6 +282,8 @@ E2E_BASE_URL="${BASE_URL}" \
 E2E_SUBPATH="${SUBPATH}" \
 E2E_USERNAME="${E2E_USERNAME}" \
 E2E_PASSWORD="${E2E_PASSWORD}" \
+E2E_DRAWIO_ENABLED="${E2E_DRAWIO_ENABLED}" \
+E2E_DRAWIO_EDITOR_URL="${E2E_DRAWIO_EDITOR_URL}" \
 E2E_EXTRA_HOSTS="${HOST_ACCESS_ADDRESS:+${INGRESS_HOST}:${HOST_ACCESS_ADDRESS}}" \
 "${ROOT_DIR}/scripts/e2e/shell.sh" -lc './scripts/e2e/run.sh'
 
