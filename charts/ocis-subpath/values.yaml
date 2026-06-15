@@ -12,7 +12,7 @@ webAssetsPatcher:
   enabled: true
   image:
     repository: ghcr.io/michibiki-io/ocis-web-assets-patcher
-    tag: "web-v12.4.0-subpath.4"
+    tag: "web-v12.4.0-subpath.5"
     pullPolicy: IfNotPresent
   srcDist: /input/dist
   dstDist: /web-assets/dist
