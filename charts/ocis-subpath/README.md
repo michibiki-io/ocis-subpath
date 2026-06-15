@@ -65,6 +65,51 @@ ocis:
         - "https://commonmark.org/"
 ```
 
+## Draw.io integration
+
+The chart can generate a static ownCloud Web editor app for `.drawio` and `.drawio.svg` files. It uses diagrams.net embed mode: the editor UI runs in an iframe, while ownCloud Web still loads and saves the file content through oCIS.
+
+The integration is disabled by default:
+
+```yaml
+drawio:
+  enabled: false
+```
+
+For a public diagrams.net proof of concept:
+
+```yaml
+drawio:
+  enabled: true
+  editorUrl: "https://embed.diagrams.net/"
+```
+
+To use a self-hosted draw.io server, deploy that server separately and point the chart at its URL:
+
+```yaml
+drawio:
+  enabled: true
+  editorUrl: "https://drawio.example.com/"
+```
+
+When `drawio.enabled=true`, the chart passes a draw.io config block to the web assets patcher. The patcher writes `drawio/drawio.js`, adds it to `config.json` as an `external_apps` entry, and patches ownCloud Web's compound extension list so files ending in `.drawio.svg` are not treated as generic `.svg` files. When `drawio.csp.enabled=true`, the origin of `drawio.editorUrl` is added to `frame-src`; no broad `connect-src` rule is added by default.
+
+The chart does not render an `app-registry.yaml` override for draw.io. The static Web app registers its own file extensions in ownCloud Web, and avoiding an App Registry YAML snippet prevents accidental replacement of oCIS' built-in MIME type defaults.
+
+`webAssetsPatcher.extraConfig` is merged after generated chart config. If you set `extraConfig.external_apps`, it replaces the generated `external_apps` list; include the draw.io entry there if you still want this integration.
+
+Security notes:
+
+- With the public default, the diagrams.net editor application is loaded from `https://embed.diagrams.net`.
+- Diagram data is saved back to oCIS, but the diagram content is handled in the browser by JavaScript from the editor origin.
+- For high-sensitivity environments, use a self-hosted draw.io server and set `drawio.editorUrl` to that origin.
+
+Known limitations:
+
+- `.drawio.png` is not supported by this chart.
+- The integration relies on the normal ownCloud Web save flow and does not implement collaborative editing or merge conflict resolution inside draw.io.
+- Export formats such as PDF can involve diagrams.net-side conversion depending on editor configuration; validate those workflows before enabling them for sensitive content.
+
 ## External OIDC example
 
 ```yaml
@@ -129,6 +174,7 @@ If both `groupMapping` and `userMapping` are configured, only the mapping select
 helm lint charts/ocis-subpath
 helm template ocis charts/ocis-subpath -f charts/ocis-subpath/values.yaml
 make helm-template-role-assignment
+make helm-template-drawio
 ```
 
 ## Known limitations

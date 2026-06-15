@@ -17,4 +17,9 @@ if [[ ! -d node_modules ]]; then
   npm install --no-fund --no-audit
 fi
 
-npx playwright test
+playwright_args=()
+if [[ -n "${E2E_PLAYWRIGHT_GREP:-}" ]]; then
+  playwright_args+=(--grep "${E2E_PLAYWRIGHT_GREP}")
+fi
+
+npx playwright test "${playwright_args[@]}"

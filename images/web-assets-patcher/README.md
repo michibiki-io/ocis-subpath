@@ -16,6 +16,7 @@
 - `BASE_URL` or `PUBLIC_URL` must be set
 - `SUBPATH` default: `/`
 - `OIDC_AUTHORITY` and `OIDC_METADATA_URL` default from `PUBLIC_URL`
+- `WEB_DRAWIO_CONFIG_JSON` optional: when enabled, generates a static draw.io Web app and registers it in `config.json`
 
 ## Test
 

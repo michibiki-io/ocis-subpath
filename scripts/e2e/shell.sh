@@ -37,6 +37,15 @@ fi
 if [[ -n "${E2E_FIXTURE_DOWNLOAD_ATTEMPTS:-}" ]]; then
   e2e_env_args+=(-e "E2E_FIXTURE_DOWNLOAD_ATTEMPTS=${E2E_FIXTURE_DOWNLOAD_ATTEMPTS}")
 fi
+if [[ -n "${E2E_DRAWIO_ENABLED:-}" ]]; then
+  e2e_env_args+=(-e "E2E_DRAWIO_ENABLED=${E2E_DRAWIO_ENABLED}")
+fi
+if [[ -n "${E2E_DRAWIO_EDITOR_URL:-}" ]]; then
+  e2e_env_args+=(-e "E2E_DRAWIO_EDITOR_URL=${E2E_DRAWIO_EDITOR_URL}")
+fi
+if [[ -n "${E2E_PLAYWRIGHT_GREP:-}" ]]; then
+  e2e_env_args+=(-e "E2E_PLAYWRIGHT_GREP=${E2E_PLAYWRIGHT_GREP}")
+fi
 
 extra_host_args=()
 if [[ -n "${E2E_EXTRA_HOSTS:-}" ]]; then

@@ -34,6 +34,28 @@ webAssetsPatcher:
   extraConfig: {}
   patchAbsoluteUrls: false
 
+drawio:
+  enabled: false
+  editorUrl: "https://embed.diagrams.net/"
+  ui: "atlas"
+  protocol: "json"
+  formats:
+    drawio:
+      enabled: true
+      extension: "drawio"
+      mimeType: "application/vnd.jgraph.mxfile"
+    drawioSvg:
+      enabled: true
+      extension: "drawio.svg"
+      mimeType: "image/svg+xml"
+  webApp:
+    enabled: true
+    name: "drawio-editor"
+    path: "drawio/drawio.js"
+    displayName: "Draw.io"
+  csp:
+    enabled: true
+
 ocis:
   baseUrl: "https://example.com"
   subpath: "/ocis"
@@ -87,7 +109,6 @@ ocis:
       frame-src:
         - "'self'"
         - "blob:"
-        - "https://embed.diagrams.net/"
       # External Markdown images are intentionally not broadly allowed. Add
       # specific origins here when Markdown files should render remote images.
       img-src:

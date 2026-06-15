@@ -88,6 +88,87 @@
         }
       }
     },
+    "drawio": {
+      "type": "object",
+      "required": ["enabled", "editorUrl", "ui", "protocol", "formats", "webApp", "csp"],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "required": ["enabled"],
+            "properties": {
+              "enabled": { "const": true }
+            }
+          },
+          "then": {
+            "properties": {
+              "editorUrl": { "type": "string", "minLength": 1, "pattern": "^https?://" }
+            }
+          }
+        }
+      ],
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "editorUrl": {
+          "type": "string",
+          "description": "Absolute diagrams.net embed editor URL. Use this to switch between public embed.diagrams.net and a self-hosted draw.io server.",
+          "pattern": "^$|^https?://"
+        },
+        "ui": { "type": "string", "minLength": 1 },
+        "protocol": { "type": "string", "enum": ["json"] },
+        "formats": {
+          "type": "object",
+          "required": ["drawio", "drawioSvg"],
+          "additionalProperties": false,
+          "properties": {
+            "drawio": {
+              "type": "object",
+              "required": ["enabled", "extension", "mimeType"],
+              "additionalProperties": false,
+              "properties": {
+                "enabled": { "type": "boolean" },
+                "extension": { "type": "string", "minLength": 1 },
+                "mimeType": { "type": "string", "minLength": 1 }
+              }
+            },
+            "drawioSvg": {
+              "type": "object",
+              "required": ["enabled", "extension", "mimeType"],
+              "additionalProperties": false,
+              "properties": {
+                "enabled": { "type": "boolean" },
+                "extension": { "type": "string", "minLength": 1 },
+                "mimeType": { "type": "string", "minLength": 1 }
+              }
+            }
+          }
+        },
+        "webApp": {
+          "type": "object",
+          "required": ["enabled", "name", "path", "displayName"],
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "name": { "type": "string", "minLength": 1 },
+            "path": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[^/].*/[^/]+\\.js$",
+              "description": "Relative path under the patched Web assets where the generated draw.io Web app is served."
+            },
+            "displayName": { "type": "string", "minLength": 1 }
+          }
+        },
+        "csp": {
+          "type": "object",
+          "required": ["enabled"],
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean" }
+          }
+        }
+      }
+    },
     "ocis": {
       "type": "object",
       "required": ["baseUrl", "subpath", "oidc"],

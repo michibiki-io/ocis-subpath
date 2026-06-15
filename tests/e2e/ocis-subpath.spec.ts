@@ -42,6 +42,9 @@ const videoDownloadAttempts = Math.max(
   1,
   Number.parseInt(process.env.E2E_FIXTURE_DOWNLOAD_ATTEMPTS || '5', 10) || 5
 )
+const drawioEnabled = /^(1|true|yes|on)$/i.test(process.env.E2E_DRAWIO_ENABLED || '')
+const drawioEditorUrl = (process.env.E2E_DRAWIO_EDITOR_URL || 'https://embed.diagrams.net/').replace(/\/+$/, '')
+const drawioEditorOrigin = new URL(drawioEditorUrl).origin
 const resultsDir = path.resolve(__dirname, 'test-results')
 const markdownFixturePath = path.resolve(__dirname, 'fixtures/commonmark-smoke.md')
 const markdownImageFixturePath = path.resolve(__dirname, 'fixtures/markdown-local-image.svg')
@@ -80,6 +83,25 @@ function originUrl(pathname = ''): string {
 
 function escapedUrlPath(pathname: string): string {
   return pathname.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+function escapeXml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;')
+}
+
+function drawioXml(label: string): string {
+  const escapedLabel = escapeXml(label)
+  return `<mxfile host="ocis-subpath-e2e"><diagram name="Page-1"><mxGraphModel dx="1000" dy="1000" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="850" pageHeight="1100" math="0" shadow="0"><root><mxCell id="0"/><mxCell id="1" parent="0"/><mxCell id="2" value="${escapedLabel}" vertex="1" parent="1"><mxGeometry x="80" y="80" width="220" height="80" as="geometry"/></mxCell></root></mxGraphModel></diagram></mxfile>`
+}
+
+function drawioSvg(label: string): string {
+  const escapedLabel = escapeXml(label)
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="320" height="180" viewBox="0 0 320 180"><metadata>${escapedLabel}</metadata><rect x="16" y="16" width="288" height="148" fill="#ffffff" stroke="#ef6c00" stroke-width="4"/><text x="32" y="96" font-family="Arial, sans-serif" font-size="18">${escapedLabel}</text></svg>`
 }
 
 function currentPathIsInsideSubpath(currentUrl: string): boolean {
@@ -873,6 +895,58 @@ async function previewPdfFromUi(page: Page, fileName: string) {
   await expect(page.locator('body')).toContainText(fileName, { timeout: 30_000 })
 }
 
+async function assertDrawioConfigAndAsset(request: APIRequestContext) {
+  const response = await request.get(url('/config.json'))
+  expect(response.status()).toBe(200)
+  const body = await response.json()
+  const externalApps = Array.isArray(body.external_apps) ? body.external_apps : []
+  const drawioApp = externalApps.find((app: { id?: string }) => app.id === 'drawio-editor') as
+    | { path?: string; config?: { editorUrl?: string; priorityExtensions?: string[] } }
+    | undefined
+
+  expect(drawioApp, 'config.json should register the draw.io external app').toBeTruthy()
+  expect(drawioApp?.path).toBe('drawio/drawio.js')
+  expect(drawioApp?.config?.editorUrl).toBeTruthy()
+  expect(new URL(drawioApp!.config!.editorUrl!).origin).toBe(drawioEditorOrigin)
+  expect(drawioApp?.config?.priorityExtensions).toEqual(expect.arrayContaining(['drawio', 'drawio.svg']))
+
+  const appResponse = await request.get(url('/drawio/drawio.js'))
+  expect(appResponse.status()).toBe(200)
+  expect(await appResponse.text()).toContain('define([')
+}
+
+async function openDrawioFile(page: Page, fileName: string) {
+  await page.goto(url('/files/spaces/personal'), { waitUntil: 'domcontentloaded' })
+  await waitForStableLoad(page)
+  const fileEntry = page.getByText(fileName, { exact: true }).first()
+  await expect(fileEntry).toBeVisible({ timeout: 60_000 })
+  await fileEntry.dblclick()
+  await expect(page).toHaveURL(new RegExp(`${escapedUrlPath(basePath)}/drawio-editor(?:/|$)`), { timeout: 30_000 })
+
+  const iframe = page.locator('iframe#drawio-editor')
+  await expect(iframe).toBeVisible({ timeout: 30_000 })
+  const iframeSrc = await iframe.getAttribute('src')
+  expect(iframeSrc).toBeTruthy()
+  const iframeUrl = new URL(iframeSrc!, baseUrl)
+  expect(iframeUrl.origin).toBe(drawioEditorOrigin)
+  expect(iframeUrl.searchParams.get('embed')).toBe('1')
+  expect(iframeUrl.searchParams.get('proto')).toBe('json')
+}
+
+async function dispatchDrawioMessage(page: Page, payload: Record<string, unknown>) {
+  await page.evaluate(
+    ({ editorOrigin, messagePayload }) => {
+      window.dispatchEvent(
+        new MessageEvent('message', {
+          origin: editorOrigin,
+          data: JSON.stringify(messagePayload)
+        })
+      )
+    },
+    { editorOrigin: drawioEditorOrigin, messagePayload: payload }
+  )
+}
+
 async function fileIdFromPropfind(api: APIRequestContext, driveId: string, fileName: string): Promise<string> {
   const response = await api.fetch(url(`/dav/spaces/${encodePath(driveId, fileName)}`), {
     method: 'PROPFIND',
@@ -1015,6 +1089,73 @@ test('Optional login works when credentials are provided', async ({ page }) => {
   expect(signals.criticalResponses).toEqual([])
   if (!allowRootRewrite) {
     expect(signals.suspiciousRequests).toEqual([])
+  }
+})
+
+test('Draw.io editor opens and saves .drawio files from a subpath', async ({ page, request }) => {
+  test.skip(!drawioEnabled, 'Set E2E_DRAWIO_ENABLED=true to enable draw.io coverage.')
+  test.skip(!loginUser || !loginPassword, 'Set E2E_USERNAME and E2E_PASSWORD to enable draw.io login coverage.')
+
+  const marker = `drawio-e2e-${crypto.randomUUID()}`
+  const fileName = `${marker}.drawio`
+  let api: APIRequestContext | undefined
+  let driveId = ''
+
+  try {
+    await assertDrawioConfigAndAsset(request)
+    await login(page)
+    api = await authenticatedApi(page)
+    driveId = await personalDriveId(api)
+    await deleteSpaceFile(api, driveId, fileName)
+    await putSpaceFile(api, driveId, fileName, 'application/vnd.jgraph.mxfile', drawioXml('initial drawio e2e'))
+
+    await openDrawioFile(page, fileName)
+    await dispatchDrawioMessage(page, { event: 'save', xml: drawioXml(marker) })
+
+    await expect.poll(async () => (await downloadSpaceFile(api!, driveId, fileName)).toString('utf8'), {
+      timeout: 90_000
+    }).toContain(marker)
+  } finally {
+    if (api && driveId) {
+      await deleteSpaceFile(api, driveId, fileName)
+    }
+    await api?.dispose()
+  }
+})
+
+test('Draw.io editor exports and saves .drawio.svg files from a subpath', async ({ page, request }) => {
+  test.skip(!drawioEnabled, 'Set E2E_DRAWIO_ENABLED=true to enable draw.io SVG coverage.')
+  test.skip(!loginUser || !loginPassword, 'Set E2E_USERNAME and E2E_PASSWORD to enable draw.io SVG login coverage.')
+
+  const marker = `drawio-svg-e2e-${crypto.randomUUID()}`
+  const fileName = `${marker}.drawio.svg`
+  let api: APIRequestContext | undefined
+  let driveId = ''
+
+  try {
+    await assertDrawioConfigAndAsset(request)
+    await login(page)
+    api = await authenticatedApi(page)
+    driveId = await personalDriveId(api)
+    await deleteSpaceFile(api, driveId, fileName)
+    await putSpaceFile(api, driveId, fileName, 'image/svg+xml', drawioSvg('initial drawio svg e2e'))
+
+    await openDrawioFile(page, fileName)
+    await dispatchDrawioMessage(page, { event: 'save', xml: drawioXml(marker) })
+    await dispatchDrawioMessage(page, {
+      event: 'export',
+      format: 'xmlsvg',
+      data: `data:image/svg+xml,${encodeURIComponent(drawioSvg(marker))}`
+    })
+
+    await expect.poll(async () => (await downloadSpaceFile(api!, driveId, fileName)).toString('utf8'), {
+      timeout: 90_000
+    }).toContain(marker)
+  } finally {
+    if (api && driveId) {
+      await deleteSpaceFile(api, driveId, fileName)
+    }
+    await api?.dispose()
   }
 })
 

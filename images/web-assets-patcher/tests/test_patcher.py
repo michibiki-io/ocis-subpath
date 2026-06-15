@@ -13,6 +13,7 @@ from patcher import (
     normalize_subpath,
     patch_assets,
     inject_favicon_link,
+    patch_drawio_complex_extension,
     patch_graph_drive_server_url,
     patch_markdown_image_sources,
     patch_signed_url_hash_path,
@@ -76,6 +77,7 @@ class PatcherTests(unittest.TestCase):
         (src / "themes" / "owncloud").mkdir(parents=True)
         (src / "js" / "index.mjs").write_text(
             'fetch("/config.json"); import("/js/chunks/demo.mjs");'
+            'const fileExtensions={complex:["tar.bz2","tar.gz","tar.xz"]};'
             'async signUrl({url:e,username:n,publicToken:r,publicLinkPassword:s}){'
             'const o=new URL(e);'
             'o.searchParams.set("OC-Credential",n),o.searchParams.set("OC-Date",new Date().toISOString()),'
@@ -135,6 +137,7 @@ class PatcherTests(unittest.TestCase):
                 apps=["files"],
                 options={"contextHelpersReadMore": True},
                 extra_config={"openIdConnect": {"prompt": "login"}, "custom": {"enabled": True}},
+                drawio_config=None,
                 patch_absolute_urls=False,
             )
 
@@ -183,6 +186,7 @@ class PatcherTests(unittest.TestCase):
                 apps=["files"],
                 options={"contextHelpersReadMore": True},
                 extra_config={},
+                drawio_config=None,
                 patch_absolute_urls=True,
             )
 
@@ -314,8 +318,162 @@ class PatcherTests(unittest.TestCase):
                     apps=["files"],
                     options={"contextHelpersReadMore": True},
                     extra_config={},
+                    drawio_config=None,
                     patch_absolute_urls=False,
                 )
+
+    def test_drawio_config_generates_external_app_and_assets(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir)
+            src = self.make_dist(tmp)
+            dst = tmp / "dst"
+            drawio_config = {
+                "enabled": True,
+                "editorUrl": "https://embed.diagrams.net/",
+                "ui": "atlas",
+                "protocol": "json",
+                "formats": {
+                    "drawio": {
+                        "enabled": True,
+                        "extension": "drawio",
+                        "mimeType": "application/vnd.jgraph.mxfile",
+                    },
+                    "drawioSvg": {
+                        "enabled": True,
+                        "extension": "drawio.svg",
+                        "mimeType": "image/svg+xml",
+                    },
+                },
+                "webApp": {
+                    "enabled": True,
+                    "name": "drawio-editor",
+                    "path": "drawio/drawio.js",
+                    "displayName": "Draw.io",
+                },
+            }
+
+            summary = patch_assets(
+                src_dir=src,
+                dst_dir=dst,
+                config_out=tmp / "config.json",
+                public_url="https://example.com/ocis",
+                subpath="/ocis",
+                theme_path="/themes/owncloud/theme.json",
+                oidc_authority="https://example.com/ocis",
+                oidc_metadata_url="https://example.com/ocis/.well-known/openid-configuration",
+                oidc_client_id="web",
+                oidc_scope="openid profile email",
+                apps=["files"],
+                options={"contextHelpersReadMore": True},
+                extra_config={},
+                drawio_config=drawio_config,
+                patch_absolute_urls=False,
+            )
+
+            config = json.loads((tmp / "config.json").read_text(encoding="utf-8"))
+            drawio_app = config["external_apps"][0]
+            self.assertEqual(drawio_app["id"], "drawio-editor")
+            self.assertEqual(drawio_app["path"], "drawio/drawio.js")
+            self.assertEqual(drawio_app["config"]["editorUrl"], "https://embed.diagrams.net/")
+            self.assertEqual(drawio_app["config"]["priorityExtensions"], ["drawio", "drawio.svg"])
+            self.assertTrue((dst / "drawio" / "drawio.js").is_file())
+            self.assertIn("drawio/drawio.js", summary["drawio_app_assets"])
+            self.assertEqual(summary["patched_drawio_complex_extension_references"], 1)
+            script = (dst / "js" / "index.mjs").read_text(encoding="utf-8")
+            self.assertIn('"drawio.svg"', script)
+
+    def test_drawio_extra_config_can_override_generated_external_apps(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir)
+            src = self.make_dist(tmp)
+            dst = tmp / "dst"
+
+            patch_assets(
+                src_dir=src,
+                dst_dir=dst,
+                config_out=tmp / "config.json",
+                public_url="https://example.com/ocis",
+                subpath="/ocis",
+                theme_path="/themes/owncloud/theme.json",
+                oidc_authority="https://example.com/ocis",
+                oidc_metadata_url="https://example.com/ocis/.well-known/openid-configuration",
+                oidc_client_id="web",
+                oidc_scope="openid profile email",
+                apps=["files"],
+                options={"contextHelpersReadMore": True},
+                extra_config={"external_apps": [{"id": "custom", "path": "custom/app.js"}]},
+                drawio_config={
+                    "enabled": True,
+                    "editorUrl": "https://drawio.example.com/",
+                    "ui": "atlas",
+                    "protocol": "json",
+                    "formats": {
+                        "drawio": {"enabled": True, "extension": "drawio", "mimeType": "application/vnd.jgraph.mxfile"},
+                        "drawioSvg": {"enabled": False, "extension": "drawio.svg", "mimeType": "image/svg+xml"},
+                    },
+                    "webApp": {"enabled": True, "name": "drawio-editor", "path": "drawio/drawio.js", "displayName": "Draw.io"},
+                },
+                patch_absolute_urls=False,
+            )
+
+            config = json.loads((tmp / "config.json").read_text(encoding="utf-8"))
+            self.assertEqual(config["external_apps"], [{"id": "custom", "path": "custom/app.js"}])
+
+    def test_patch_drawio_complex_extension_adds_compound_extension_once(self):
+        source = 'const fileExtensions={complex:["tar.bz2","tar.gz","tar.xz"]}'
+
+        patched, count = patch_drawio_complex_extension(source)
+        patched_again, count_again = patch_drawio_complex_extension(patched)
+
+        self.assertEqual(count, 1)
+        self.assertEqual(count_again, 0)
+        self.assertIn('complex:["drawio.svg","tar.bz2","tar.gz","tar.xz"]', patched_again)
+
+    def test_drawio_config_uses_custom_svg_compound_extension(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir)
+            src = self.make_dist(tmp)
+            dst = tmp / "dst"
+
+            patch_assets(
+                src_dir=src,
+                dst_dir=dst,
+                config_out=tmp / "config.json",
+                public_url="https://example.com/ocis",
+                subpath="/ocis",
+                theme_path="/themes/owncloud/theme.json",
+                oidc_authority="https://example.com/ocis",
+                oidc_metadata_url="https://example.com/ocis/.well-known/openid-configuration",
+                oidc_client_id="web",
+                oidc_scope="openid profile email",
+                apps=["files"],
+                options={"contextHelpersReadMore": True},
+                extra_config={},
+                drawio_config={
+                    "enabled": True,
+                    "editorUrl": "https://drawio.example.com/",
+                    "ui": "atlas",
+                    "protocol": "json",
+                    "formats": {
+                        "drawio": {"enabled": True, "extension": "drawio", "mimeType": "application/vnd.jgraph.mxfile"},
+                        "drawioSvg": {"enabled": True, "extension": "diagram.svg", "mimeType": "image/svg+xml"},
+                    },
+                    "webApp": {"enabled": True, "name": "drawio-editor", "path": "drawio/drawio.js", "displayName": "Draw.io"},
+                },
+                patch_absolute_urls=False,
+            )
+
+            config = json.loads((tmp / "config.json").read_text(encoding="utf-8"))
+            drawio_app = config["external_apps"][0]
+            self.assertEqual(drawio_app["config"]["priorityExtensions"], ["drawio", "diagram.svg"])
+
+            script = (dst / "js" / "index.mjs").read_text(encoding="utf-8")
+            self.assertIn('complex:["diagram.svg","tar.bz2","tar.gz","tar.xz"]', script)
+
+            drawio_app_js = (dst / "drawio" / "drawio.js").read_text(encoding="utf-8")
+            self.assertIn("drawioSvgExtension", drawio_app_js)
+            self.assertIn('e.formats&&e.formats.drawioSvg&&e.formats.drawioSvg.extension', drawio_app_js)
+            self.assertIn('e.endsWith("."+n)', drawio_app_js)
 
     def test_runtime_config_uses_public_url_override(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -333,7 +491,7 @@ class PatcherTests(unittest.TestCase):
                 original[key] = os.environ.get(key)
                 os.environ[key] = value
             try:
-                runtime = build_runtime_config(type("Args", (), {"src": None, "dst": None, "config_out": None, "base_url": None, "subpath": None, "public_url": None, "oidc_authority": None, "oidc_metadata_url": None, "oidc_client_id": None, "oidc_scope": None, "theme_path": None, "apps_json": None, "options_json": None, "extra_config_json": None, "patch_absolute_urls": None})())
+                runtime = build_runtime_config(type("Args", (), {"src": None, "dst": None, "config_out": None, "base_url": None, "subpath": None, "public_url": None, "oidc_authority": None, "oidc_metadata_url": None, "oidc_client_id": None, "oidc_scope": None, "theme_path": None, "apps_json": None, "options_json": None, "extra_config_json": None, "drawio_config_json": None, "patch_absolute_urls": None})())
                 self.assertEqual(runtime["public_url"], "https://cdn.example.com/custom")
                 self.assertEqual(runtime["oidc_authority"], "https://cdn.example.com/custom")
             finally:
