@@ -85,7 +85,16 @@ COMPLEX_EXTENSION_PATTERN = re.compile(
 )
 
 DRAWIO_APP_JS = r"""define(["vue","@ownclouders/web-pkg","vue3-gettext"],function(Vue,webPkg,vueGettext){"use strict";const h=Vue.h,ref=Vue.ref,computed=Vue.computed,watch=Vue.watch,onMounted=Vue.onMounted,onBeforeUnmount=Vue.onBeforeUnmount,nextTick=Vue.nextTick,defineComponent=Vue.defineComponent,defineWebApplication=webPkg.defineWebApplication,AppWrapperRoute=webPkg.AppWrapperRoute,applicationIdDefault="drawio-editor",blankDiagram='<mxfile host="ocis-subpath"><diagram name="Page-1"><mxGraphModel dx="1000" dy="1000" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="850" pageHeight="1100" math="0" shadow="0"><root><mxCell id="0"/><mxCell id="1" parent="0"/></root></mxGraphModel></diagram></mxfile>';function gettext(){try{const t=vueGettext.useGettext&&vueGettext.useGettext();return t&&t.$gettext?t.$gettext:function(e){return e}}catch(e){return function(t){return t}}}function normaliseUrl(e){return String(e||"https://embed.diagrams.net/").replace(/\/+$/,"")}function enabled(e){return !e||e.enabled!==false}function formats(e){const t=e.formats||{},n=[];return enabled(t.drawio)&&n.push({extension:t.drawio&&t.drawio.extension||"drawio",routeName:"drawio-editor",label:function(){return"Edit in draw.io"},hasPriority:true,newFileMenu:{menuTitle:function(){return"Draw.io diagram"}}}),enabled(t.drawioSvg)&&n.push({extension:t.drawioSvg&&t.drawioSvg.extension||"drawio.svg",routeName:"drawio-editor",label:function(){return"Edit in draw.io"},hasPriority:true}),n}function decodeDataUri(e){if(!e)return"";const t=String(e),n=t.indexOf(",");if(!t.startsWith("data:")||n<0)return t;const r=t.slice(0,n),o=t.slice(n+1);if(/;base64/i.test(r)){const e=atob(o),t=new Uint8Array(e.length);for(let n=0;n<e.length;n++)t[n]=e.charCodeAt(n);return new TextDecoder("utf-8").decode(t)}return decodeURIComponent(o)}const DrawioEditor=defineComponent({name:"DrawioEditor",props:{resource:{type:Object,required:true},applicationConfig:{type:Object,required:true,default:function(){}},currentContent:{type:String,required:true},isReadOnly:{type:Boolean,required:true},isDirty:{type:Boolean,required:true}},emits:["update:currentContent","save","close"],setup:function(props,ctx){const iframe=ref(null),lastXml=ref(""),pendingSvgSave=ref(false),config=computed(function(){const e=props.applicationConfig||{};return{editorUrl:normaliseUrl(e.editorUrl||e.url),ui:e.ui||e.theme||"atlas",protocol:e.protocol||"json"}}),origin=computed(function(){return new URL(config.value.editorUrl,window.location.href).origin}),isSvg=computed(function(){const e=(props.resource&&props.resource.name||"").toLowerCase(),t=(props.resource&&props.resource.extension||"").toLowerCase();return t==="drawio.svg"||e.endsWith(".drawio.svg")}),iframeSource=computed(function(){const e=new URL(config.value.editorUrl,window.location.href);e.searchParams.set("embed","1");e.searchParams.set("chrome",props.isReadOnly?"0":"1");e.searchParams.set("picker","0");e.searchParams.set("stealth","1");e.searchParams.set("spin","1");e.searchParams.set("proto",config.value.protocol);e.searchParams.set("ui",config.value.ui);return e.toString()});function post(e){try{iframe.value&&iframe.value.contentWindow&&iframe.value.contentWindow.postMessage(JSON.stringify(e),origin.value)}catch(t){console.error(t)}}function currentContent(){return props.currentContent&&props.currentContent.trim()?props.currentContent:blankDiagram}function load(){post({action:"load",xml:currentContent(),autosave:1,saveAndExit:1,title:props.resource&&props.resource.name||"Diagram"})}function saveXml(e){lastXml.value=e||lastXml.value;if(isSvg.value){pendingSvgSave.value=true;post({action:"export",format:"xmlsvg",xml:lastXml.value,spinKey:"saving"})}else{ctx.emit("update:currentContent",lastXml.value);nextTick(function(){ctx.emit("save")})}}watch(function(){return props.isDirty},function(){post({action:"status",modified:props.isDirty})});watch(function(){return props.resource&&props.resource.id},function(){load()});function handleMessage(e){if(e.origin!==origin.value||!e.data)return;let t;try{t=typeof e.data==="string"?JSON.parse(e.data):e.data}catch(n){return}switch(t&&t.event){case"init":load();break;case"autosave":lastXml.value=t.xml||lastXml.value;if(!isSvg.value&&t.xml){ctx.emit("update:currentContent",t.xml)}break;case"save":saveXml(t.xml);break;case"export":if(pendingSvgSave.value){pendingSvgSave.value=false;const e=decodeDataUri(t.data||"");if(e){ctx.emit("update:currentContent",e);nextTick(function(){ctx.emit("save")})}else{post({action:"dialog",title:"Save failed",message:"draw.io did not return SVG export data.",modified:true})}}break;case"exit":ctx.emit("close");break;case"error":post({action:"dialog",title:"draw.io error",message:t.message||t.error||"The draw.io editor returned an error.",modified:true});break}}onMounted(function(){window.addEventListener("message",handleMessage)});onBeforeUnmount(function(){window.removeEventListener("message",handleMessage)});return function(){return h("iframe",{id:"drawio-editor",ref:iframe,src:iframeSource.value,title:"draw.io editor",style:{width:"100%",height:"100%",border:"0",margin:"0",padding:"0",overflow:"hidden"}})}}});return defineWebApplication({setup:function(context){const cfg=context&&context.applicationConfig||{},appId=cfg.name||cfg.id||applicationIdDefault,$gettext=gettext(),routeName="drawio-editor",routes=[{name:routeName,path:"/:driveAliasAndItem(.*)?",component:AppWrapperRoute(DrawioEditor,{applicationId:appId}),meta:{authContext:"hybrid",title:$gettext("Draw.io editor"),patchCleanPath:true}}];return{appInfo:{name:cfg.displayName||"Draw.io",id:appId,icon:"grid",color:"#EF6C00",defaultExtension:"drawio",extensions:formats(cfg)},routes:routes}}})});
-"""
+""".replace(
+    r'function enabled(e){return !e||e.enabled!==false}function formats(e){const t=e.formats||{},n=[];return enabled(t.drawio)&&n.push({extension:t.drawio&&t.drawio.extension||"drawio",routeName:"drawio-editor",label:function(){return"Edit in draw.io"},hasPriority:true,newFileMenu:{menuTitle:function(){return"Draw.io diagram"}}}),enabled(t.drawioSvg)&&n.push({extension:t.drawioSvg&&t.drawioSvg.extension||"drawio.svg",routeName:"drawio-editor",label:function(){return"Edit in draw.io"},hasPriority:true}),n}',
+    r'function enabled(e){return !e||e.enabled!==false}function normaliseExtension(e,t){return String(e||t).replace(/^\.+/,"").toLowerCase()}function formats(e){const t=e.formats||{},n=[];return enabled(t.drawio)&&n.push({extension:normaliseExtension(t.drawio&&t.drawio.extension,"drawio"),routeName:"drawio-editor",label:function(){return"Edit in draw.io"},hasPriority:true,newFileMenu:{menuTitle:function(){return"Draw.io diagram"}}}),enabled(t.drawioSvg)&&n.push({extension:normaliseExtension(t.drawioSvg&&t.drawioSvg.extension,"drawio.svg"),routeName:"drawio-editor",label:function(){return"Edit in draw.io"},hasPriority:true}),n}'
+).replace(
+    r'return{editorUrl:normaliseUrl(e.editorUrl||e.url),ui:e.ui||e.theme||"atlas",protocol:e.protocol||"json"}}),origin=',
+    r'return{editorUrl:normaliseUrl(e.editorUrl||e.url),ui:e.ui||e.theme||"atlas",protocol:e.protocol||"json",drawioSvgExtension:normaliseExtension(e.formats&&e.formats.drawioSvg&&e.formats.drawioSvg.extension,"drawio.svg")}}),origin='
+).replace(
+    r'return t==="drawio.svg"||e.endsWith(".drawio.svg")}),iframeSource=',
+    r'const n=config.value.drawioSvgExtension;return t===n||e.endsWith("."+n)}),iframeSource='
+)
 
 
 class PatcherError(RuntimeError):
@@ -210,7 +219,7 @@ def validate_drawio_config(raw_config: Any) -> dict[str, Any] | None:
             raise PatcherError(f"drawio.formats.{key} must be a JSON object")
         normalized_formats[key] = {
             "enabled": bool(value.get("enabled", True)),
-            "extension": str(value.get("extension") or default_extension).lstrip("."),
+            "extension": str(value.get("extension") or default_extension).lstrip(".").lower(),
             "mimeType": str(value.get("mimeType") or default_mime_type),
         }
         if not normalized_formats[key]["extension"]:
@@ -568,12 +577,16 @@ def build_config(
     return deep_merge(base_config, extra_config)
 
 
-def patch_drawio_complex_extension(content: str) -> tuple[str, int]:
+def patch_drawio_complex_extension(content: str, compound_extension: str = "drawio.svg") -> tuple[str, int]:
+    normalized_extension = compound_extension.lstrip(".").lower()
+    if "." not in normalized_extension:
+        return content, 0
+
     def replacement(match: re.Match[str]) -> str:
         items = match.group("items")
-        if "drawio.svg" in items:
+        if normalized_extension in items:
             return match.group(0)
-        return f'complex:["drawio.svg",{items}]'
+        return f"complex:[{json.dumps(normalized_extension)},{items}]"
 
     return COMPLEX_EXTENSION_PATTERN.subn(replacement, content)
 
@@ -695,7 +708,10 @@ def patch_assets(
             if count:
                 markdown_image_source_changes += count
             if drawio_config and drawio_config["formats"]["drawioSvg"]["enabled"]:
-                patched, count = patch_drawio_complex_extension(patched)
+                patched, count = patch_drawio_complex_extension(
+                    patched,
+                    drawio_config["formats"]["drawioSvg"]["extension"],
+                )
                 if count:
                     drawio_complex_extension_changes += count
             if patched != content:

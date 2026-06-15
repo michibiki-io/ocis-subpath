@@ -429,6 +429,52 @@ class PatcherTests(unittest.TestCase):
         self.assertEqual(count_again, 0)
         self.assertIn('complex:["drawio.svg","tar.bz2","tar.gz","tar.xz"]', patched_again)
 
+    def test_drawio_config_uses_custom_svg_compound_extension(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir)
+            src = self.make_dist(tmp)
+            dst = tmp / "dst"
+
+            patch_assets(
+                src_dir=src,
+                dst_dir=dst,
+                config_out=tmp / "config.json",
+                public_url="https://example.com/ocis",
+                subpath="/ocis",
+                theme_path="/themes/owncloud/theme.json",
+                oidc_authority="https://example.com/ocis",
+                oidc_metadata_url="https://example.com/ocis/.well-known/openid-configuration",
+                oidc_client_id="web",
+                oidc_scope="openid profile email",
+                apps=["files"],
+                options={"contextHelpersReadMore": True},
+                extra_config={},
+                drawio_config={
+                    "enabled": True,
+                    "editorUrl": "https://drawio.example.com/",
+                    "ui": "atlas",
+                    "protocol": "json",
+                    "formats": {
+                        "drawio": {"enabled": True, "extension": "drawio", "mimeType": "application/vnd.jgraph.mxfile"},
+                        "drawioSvg": {"enabled": True, "extension": "diagram.svg", "mimeType": "image/svg+xml"},
+                    },
+                    "webApp": {"enabled": True, "name": "drawio-editor", "path": "drawio/drawio.js", "displayName": "Draw.io"},
+                },
+                patch_absolute_urls=False,
+            )
+
+            config = json.loads((tmp / "config.json").read_text(encoding="utf-8"))
+            drawio_app = config["external_apps"][0]
+            self.assertEqual(drawio_app["config"]["priorityExtensions"], ["drawio", "diagram.svg"])
+
+            script = (dst / "js" / "index.mjs").read_text(encoding="utf-8")
+            self.assertIn('complex:["diagram.svg","tar.bz2","tar.gz","tar.xz"]', script)
+
+            drawio_app_js = (dst / "drawio" / "drawio.js").read_text(encoding="utf-8")
+            self.assertIn("drawioSvgExtension", drawio_app_js)
+            self.assertIn('e.formats&&e.formats.drawioSvg&&e.formats.drawioSvg.extension', drawio_app_js)
+            self.assertIn('e.endsWith("."+n)', drawio_app_js)
+
     def test_runtime_config_uses_public_url_override(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp = Path(tmpdir)
