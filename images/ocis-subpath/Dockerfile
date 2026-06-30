@@ -1,5 +1,5 @@
 ARG OCIS_REPO=https://github.com/owncloud/ocis.git
-ARG OCIS_REF=v8.0.4
+ARG OCIS_REF=v8.0.5
 
 FROM owncloudci/nodejs:24 AS source
 
