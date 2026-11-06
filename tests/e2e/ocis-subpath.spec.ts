@@ -482,7 +482,10 @@ async function putSpaceFile(
 }
 
 async function downloadSpaceFile(api: APIRequestContext, driveId: string, fileName: string): Promise<Buffer> {
-  const fileUrl = url(`/dav/spaces/${encodePath(driveId, fileName)}`)
+  return downloadReadyFile(api, url(`/dav/spaces/${encodePath(driveId, fileName)}`))
+}
+
+async function downloadReadyFile(api: APIRequestContext, fileUrl: string): Promise<Buffer> {
   for (let attempt = 0; attempt < 30; attempt += 1) {
     const response = await api.get(fileUrl, { failOnStatusCode: false })
     if (response.status() === 200) {
@@ -1269,9 +1272,8 @@ test('Provisioned users, groups, spaces, markdown, and zip sharing work from a s
     const markdownFileId = await fileIdFromPropfind(aliceApi, aliceSalesDriveId, markdownFileName)
     const versions = await fileVersionKeys(aliceApi, markdownFileId)
     expect(versions.length).toBeGreaterThanOrEqual(1)
-    const versionPreview = await aliceApi.get(url(`/remote.php/dav/meta/${encodePath(markdownFileId)}/v/${encodePath(versions[0])}`))
-    expect(versionPreview.status()).toBe(200)
-    expect(await versionPreview.text()).toContain('CommonMark Smoke Test')
+    const versionPreview = await downloadReadyFile(aliceApi, url(`/remote.php/dav/meta/${encodePath(markdownFileId)}/v/${encodePath(versions[0])}`))
+    expect(versionPreview.toString('utf8')).toContain('CommonMark Smoke Test')
     await expect.poll(async () => (await downloadSpaceFile(aliceApi!, aliceSalesDriveId, markdownFileName)).toString('utf8')).toContain(randomLine)
     await aliceRecording.page.reload({ waitUntil: 'domcontentloaded' })
     await waitForStableLoad(aliceRecording.page)
