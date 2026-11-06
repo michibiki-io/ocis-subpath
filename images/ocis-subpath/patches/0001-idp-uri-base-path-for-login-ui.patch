@@ -58,7 +58,7 @@ index a687215a..7f9fa184 100644
  					if strings.HasSuffix(r.URL.Path, ".css") {
  						w.Header().Set("Cache-Control", "no-cache")
 diff --git a/services/idp/pkg/service/v0/service.go b/services/idp/pkg/service/v0/service.go
-index 29314ff5..f86b31c6 100644
+index 29314ff5..fe07fd7c 100644
 --- a/services/idp/pkg/service/v0/service.go
 +++ b/services/idp/pkg/service/v0/service.go
 @@ -283,6 +283,8 @@ type IDP struct {
@@ -135,17 +135,21 @@ index 29314ff5..f86b31c6 100644
  			return
  		}
  		base, t := idp.basePage(r, "Sign in - ownCloud", "Login")
-@@ -563,7 +574,8 @@ func safePasswordResetURI(raw string) template.URL {
+@@ -563,7 +574,12 @@ func safePasswordResetURI(raw string) template.URL {
  // fetchLoginLogoURL fetches the ownCloud theme.json from the web service at startup
  // and returns the login logo URL. Falls back to the default ownCloud logo if unreachable.
  func fetchLoginLogoURL(ocisURL string, insecure bool) string {
 -	const fallback = "/themes/owncloud/assets/logo.svg"
-+	baseURL := strings.TrimRight(ocisURL, "/")
-+	fallback := baseURL + "/themes/owncloud/assets/logo.svg"
++	baseURL, _ := url.Parse(ocisURL)
++	basePath := ""
++	if baseURL != nil {
++		basePath = strings.TrimRight(baseURL.Path, "/")
++	}
++	fallback := basePath + "/themes/owncloud/assets/logo.svg"
  	if ocisURL == "" {
  		return fallback
  	}
-@@ -571,10 +583,13 @@ func fetchLoginLogoURL(ocisURL string, insecure bool) string {
+@@ -571,10 +587,13 @@ func fetchLoginLogoURL(ocisURL string, insecure bool) string {
  	tr := &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: insecure}} //nolint:gosec
  	client := &http.Client{Transport: tr, Timeout: 5 * time.Second}
  	resp, err := client.Get(themeURL)
@@ -160,17 +164,17 @@ index 29314ff5..f86b31c6 100644
  	var theme themeJSON
  	if err := json.NewDecoder(resp.Body).Decode(&theme); err != nil {
  		return fallback
-@@ -585,7 +600,7 @@ func fetchLoginLogoURL(ocisURL string, insecure bool) string {
+@@ -585,7 +604,7 @@ func fetchLoginLogoURL(ocisURL string, insecure bool) string {
  	}
  	// theme.json returns relative paths like "themes/owncloud/assets/logo.svg"
  	if !strings.HasPrefix(logo, "/") && !strings.HasPrefix(logo, "http") {
 -		logo = "/" + logo
-+		logo = baseURL + "/" + logo
++		logo = basePath + "/" + logo
  	}
  	return logo
  }
 diff --git a/services/idp/pkg/service/v0/service_test.go b/services/idp/pkg/service/v0/service_test.go
-index d7c0bc32..b50afd5c 100644
+index d7c0bc32..9039cee0 100644
 --- a/services/idp/pkg/service/v0/service_test.go
 +++ b/services/idp/pkg/service/v0/service_test.go
 @@ -492,3 +492,66 @@ func TestConsentRedirect(t *testing.T) {
@@ -229,10 +233,10 @@ index d7c0bc32..b50afd5c 100644
 +			defer srv.Close()
 +			want := logo
 +			if logo == "" {
-+				want = srv.URL + "/ocis/themes/owncloud/assets/logo.svg"
++				want = "/ocis/themes/owncloud/assets/logo.svg"
 +			}
 +			if logo == "themes/owncloud/assets/logo.svg" {
-+				want = srv.URL + "/ocis/" + logo
++				want = "/ocis/" + logo
 +			}
 +			if got := fetchLoginLogoURL(srv.URL+"/ocis/", false); got != want {
 +				t.Errorf("logo = %s, want %s", got, want)
