@@ -181,7 +181,7 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha,scope=web-assets-patcher
-          cache-to: type=gha,mode=max,scope=web-assets-patcher
+          cache-to: type=gha,mode=max,scope=web-assets-patcher,ignore-error=true
           provenance: mode=max
           sbom: true
 

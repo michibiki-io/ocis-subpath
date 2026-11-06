@@ -450,9 +450,18 @@ async function uploadVideoViaTus(api: APIRequestContext, driveId: string, folder
 }
 
 async function deleteSpaceFile(api: APIRequestContext, driveId: string, fileName: string) {
-  const response = await api.delete(url(`/dav/spaces/${encodePath(driveId, fileName)}`), {
-    failOnStatusCode: false
-  })
+  const fileUrl = url(`/dav/spaces/${encodePath(driveId, fileName)}`)
+  for (let attempt = 0; attempt < 30; attempt += 1) {
+    const response = await api.delete(fileUrl, { failOnStatusCode: false })
+    if ([200, 204, 404].includes(response.status())) {
+      return
+    }
+    if (response.status() !== 425) {
+      ensureStatus(response, [200, 204, 404], `delete ${fileName}`)
+    }
+    await sleep(1_000)
+  }
+  const response = await api.delete(fileUrl, { failOnStatusCode: false })
   ensureStatus(response, [200, 204, 404], `delete ${fileName}`)
 }
 
@@ -920,8 +929,28 @@ async function openDrawioFile(page: Page, fileName: string) {
   await waitForStableLoad(page)
   const fileEntry = page.getByText(fileName, { exact: true }).first()
   await expect(fileEntry).toBeVisible({ timeout: 60_000 })
+  let suggestedDownload: string | undefined
+  const downloadPromise = page.waitForEvent('download', { timeout: 30_000 })
+    .then((download) => {
+      suggestedDownload = download.suggestedFilename()
+      return suggestedDownload
+    })
+    .catch(() => undefined)
+  const editorUrlPromise = page.waitForURL(new RegExp(`${escapedUrlPath(basePath)}/drawio-editor(?:/|$)`), {
+    timeout: 30_000
+  })
   await fileEntry.dblclick()
-  await expect(page).toHaveURL(new RegExp(`${escapedUrlPath(basePath)}/drawio-editor(?:/|$)`), { timeout: 30_000 })
+  const firstAction = await Promise.race([
+    editorUrlPromise.then(() => ({ type: 'editor' as const })),
+    downloadPromise.then((suggestedFilename) =>
+      suggestedFilename
+        ? { type: 'download' as const, suggestedFilename }
+        : { type: 'timeout' as const }
+    )
+  ])
+  expect(firstAction, `${fileName} should open the draw.io editor instead of downloading`).toEqual({ type: 'editor' })
+  await page.waitForTimeout(1_000)
+  expect(suggestedDownload, `${fileName} should not trigger a browser download`).toBeUndefined()
 
   const iframe = page.locator('iframe#drawio-editor')
   await expect(iframe).toBeVisible({ timeout: 30_000 })
