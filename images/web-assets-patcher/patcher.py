@@ -491,10 +491,10 @@ def patch_markdown_image_sources(content: str, subpath: str, oidc_client_id: str
             "__ocisResolveMarkdownImageSrc=__ocisSrc=>{"
             'if(!__ocisSrc||/^[?#]/.test(__ocisSrc)||/^[a-z][a-z0-9+.-]*:/i.test(__ocisSrc)||'
             '__ocisSrc.startsWith("//")||__ocisSrc.startsWith("/"))return"";'
-            f"const e=__ocisPublicMarkdownWebDavPath()||{props}.resource?.webDavPath;"
-            'if(!e)return"";'
+            f"const __ocisMarkdownWebDavPath=__ocisPublicMarkdownWebDavPath()||{props}.resource?.webDavPath;"
+            'if(!__ocisMarkdownWebDavPath)return"";'
             "try{"
-            'const n=String(e).startsWith("/")?String(e):`/${e}`,'
+            'const n=String(__ocisMarkdownWebDavPath).startsWith("/")?String(__ocisMarkdownWebDavPath):`/${__ocisMarkdownWebDavPath}`,'
             'r=new URL(String(__ocisSrc),`https://ocis.invalid${n.replace(/\\/[^/]*$/,"/")}`),'
             'i=new URL(document.baseURI).pathname.replace(/\\/$/,"");'
             'return`${i&&i!=="/"?i:""}/dav${__ocisEncodeMarkdownImagePath(r.pathname)}${r.search}${r.hash}`'

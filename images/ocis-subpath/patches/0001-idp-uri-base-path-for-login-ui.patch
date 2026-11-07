@@ -1,8 +1,254 @@
+diff --git a/services/idp/assets/identifier/index.html b/services/idp/assets/identifier/index.html
+index 9e92fa71..d58bb6d8 100644
+--- a/services/idp/assets/identifier/index.html
++++ b/services/idp/assets/identifier/index.html
+@@ -154,7 +154,7 @@
+           if (hello && hello.next === 'consent') {
+             var consentParams = new URLSearchParams(window.location.search);
+             consentParams.set("prompt", "consent");
+-            window.location.href = '/signin/v1/consent?' + consentParams.toString();
++            window.location.href = pathPrefix + '/consent?' + consentParams.toString();
+             return;
+           }
+           var next = hello && (hello.continue_uri || hello.next);
+@@ -208,12 +208,12 @@
+       .then(function(data) {
+         if (!data || !data.success) { showForm(); return; }
+         if (helloPrompts.indexOf("select_account") !== -1 && data.username) {
+-          window.location.href = '/signin/v1/chooseaccount' + window.location.search;
++          window.location.href = pathPrefix + '/chooseaccount' + window.location.search;
+           return;
+         }
+         if (data.continue_uri && isSameOrigin(data.continue_uri)) {
+           if (data.next === 'consent') {
+-            window.location.href = '/signin/v1/consent' + window.location.search;
++            window.location.href = pathPrefix + '/consent' + window.location.search;
+           } else {
+             window.location.href = data.continue_uri;
+           }
+diff --git a/services/idp/pkg/middleware/static.go b/services/idp/pkg/middleware/static.go
+index a687215a..7f9fa184 100644
+--- a/services/idp/pkg/middleware/static.go
++++ b/services/idp/pkg/middleware/static.go
+@@ -16,6 +16,9 @@ func Static(root string, fs http.FileSystem, tp trace.TracerProvider) func(http.
+ 		root = root + "/"
+ 	}
+ 
++	staticPrefix := root + "static/"
++	staticTargetPrefix := root + "identifier/static/"
++
+ 	static := http.StripPrefix(
+ 		root,
+ 		http.FileServer(
+@@ -33,14 +36,14 @@ func Static(root string, fs http.FileSystem, tp trace.TracerProvider) func(http.
+ 			r = r.WithContext(ctx)
+ 
+ 			// serve the static assets for the identifier web app
+-			if strings.HasPrefix(r.URL.Path, "/signin/v1/static/") {
++			if strings.HasPrefix(r.URL.Path, staticPrefix) {
+ 				if strings.HasSuffix(r.URL.Path, "/") {
+ 					// but no listing of folders
+ 					span.SetAttributes(attribute.KeyValue{Key: "path", Value: attribute.StringValue(r.URL.Path)})
+ 					span.SetStatus(codes.Error, "asset not found")
+ 					http.NotFound(w, r)
+ 				} else {
+-					r.URL.Path = strings.Replace(r.URL.Path, "/signin/v1/static/", "/signin/v1/identifier/static/", 1)
++					r.URL.Path = strings.Replace(r.URL.Path, staticPrefix, staticTargetPrefix, 1)
+ 					span.SetAttributes(attribute.KeyValue{Key: "server", Value: attribute.StringValue(r.URL.Path)})
+ 					if strings.HasSuffix(r.URL.Path, ".css") {
+ 						w.Header().Set("Cache-Control", "no-cache")
+diff --git a/services/idp/pkg/service/v0/service.go b/services/idp/pkg/service/v0/service.go
+index 29314ff5..fe07fd7c 100644
+--- a/services/idp/pkg/service/v0/service.go
++++ b/services/idp/pkg/service/v0/service.go
+@@ -283,6 +283,8 @@ type IDP struct {
+ 
+ // initMux initializes the internal idp gorilla mux and mounts it in to an ocis chi-router
+ func (idp *IDP) initMux(ctx context.Context, r []server.WithRoutes, h http.Handler, options Options) {
++	signInPrefix := pathWithOptionalPrefix(options.Config.IDP.URIBasePath, "/signin/v1")
++
+ 	gm := mux.NewRouter()
+ 	for _, route := range r {
+ 		route.AddRoutes(ctx, gm)
+@@ -296,21 +298,21 @@ func (idp *IDP) initMux(ctx context.Context, r []server.WithRoutes, h http.Handl
+ 	idp.mux = chi.NewMux()
+ 	idp.mux.Use(options.Middleware...)
+ 	idp.mux.Use(middleware.Static(
+-		"/signin/v1/",
++		signInPrefix+"/",
+ 		idp.assets,
+ 		idp.tp,
+ 	))
+ 
+ 	idp.mux.Group(func(r chi.Router) {
+ 		// Login and static pages (must be before Mount so chi matches first)
+-		r.Get("/signin/v1/identifier", idp.Index())
+-		r.Get("/signin/v1/identifier/", idp.Index())
+-		r.Get("/signin/v1/identifier/index.html", idp.Index())
+-		r.Get("/signin/v1/welcome", idp.Welcome())
+-		r.Get("/signin/v1/goodbye", idp.Goodbye())
+-		r.Get("/signin/v1/consent", idp.Consent())
+-		r.Get("/signin/v1/loginerror", idp.LoginError())
+-		r.Get("/signin/v1/chooseaccount", idp.Chooseaccount())
++		r.Get(signInPrefix+"/identifier", idp.Index())
++		r.Get(signInPrefix+"/identifier/", idp.Index())
++		r.Get(signInPrefix+"/identifier/index.html", idp.Index())
++		r.Get(signInPrefix+"/welcome", idp.Welcome())
++		r.Get(signInPrefix+"/goodbye", idp.Goodbye())
++		r.Get(signInPrefix+"/consent", idp.Consent())
++		r.Get(signInPrefix+"/loginerror", idp.LoginError())
++		r.Get(signInPrefix+"/chooseaccount", idp.Chooseaccount())
+ 	})
+ 
+ 	idp.mux.Group(func(r chi.Router) {
+@@ -325,6 +327,15 @@ func (idp *IDP) initMux(ctx context.Context, r []server.WithRoutes, h http.Handl
+ 	})
+ }
+ 
++func pathWithOptionalPrefix(prefix string, subpath string) string {
++	prefix = strings.Trim(prefix, "/")
++	subpath = "/" + strings.Trim(subpath, "/")
++	if prefix == "" {
++		return subpath
++	}
++	return "/" + prefix + subpath
++}
++
+ // ServeHTTP implements the Service interface.
+ func (idp *IDP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+ 	idp.mux.ServeHTTP(w, r)
+@@ -377,7 +388,7 @@ func (idp *IDP) basePage(r *http.Request, title, headline string) (basePageData,
+ 		Title:      get(title),
+ 		Headline:   get(headline),
+ 		Nonce:      rndm.GenerateRandomString(32),
+-		PathPrefix: "/signin/v1",
++		PathPrefix: pathWithOptionalPrefix(idp.config.IDP.URIBasePath, "/signin/v1"),
+ 		BgImgURL:   idp.bgImgURL,
+ 		LogoURL:    idp.logoURL,
+ 	}, t
+@@ -419,7 +430,7 @@ func (idp *IDP) Index() http.HandlerFunc {
+ 	tpl := idp.mustParseTemplate("/identifier/index.html", "Could not load index template")
+ 	return func(w http.ResponseWriter, r *http.Request) {
+ 		if r.URL.Query().Get("flow") == "consent" {
+-			http.Redirect(w, r, "/signin/v1/consent?"+r.URL.RawQuery, http.StatusFound)
++			http.Redirect(w, r, pathWithOptionalPrefix(idp.config.IDP.URIBasePath, "/signin/v1/consent")+"?"+r.URL.RawQuery, http.StatusFound)
+ 			return
+ 		}
+ 		base, t := idp.basePage(r, "Sign in - ownCloud", "Login")
+@@ -563,7 +574,12 @@ func safePasswordResetURI(raw string) template.URL {
+ // fetchLoginLogoURL fetches the ownCloud theme.json from the web service at startup
+ // and returns the login logo URL. Falls back to the default ownCloud logo if unreachable.
+ func fetchLoginLogoURL(ocisURL string, insecure bool) string {
+-	const fallback = "/themes/owncloud/assets/logo.svg"
++	baseURL, _ := url.Parse(ocisURL)
++	basePath := ""
++	if baseURL != nil {
++		basePath = strings.TrimRight(baseURL.Path, "/")
++	}
++	fallback := basePath + "/themes/owncloud/assets/logo.svg"
+ 	if ocisURL == "" {
+ 		return fallback
+ 	}
+@@ -571,10 +587,13 @@ func fetchLoginLogoURL(ocisURL string, insecure bool) string {
+ 	tr := &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: insecure}} //nolint:gosec
+ 	client := &http.Client{Transport: tr, Timeout: 5 * time.Second}
+ 	resp, err := client.Get(themeURL)
+-	if err != nil || resp.StatusCode != http.StatusOK {
++	if err != nil {
+ 		return fallback
+ 	}
+ 	defer resp.Body.Close()
++	if resp.StatusCode != http.StatusOK {
++		return fallback
++	}
+ 	var theme themeJSON
+ 	if err := json.NewDecoder(resp.Body).Decode(&theme); err != nil {
+ 		return fallback
+@@ -585,7 +604,7 @@ func fetchLoginLogoURL(ocisURL string, insecure bool) string {
+ 	}
+ 	// theme.json returns relative paths like "themes/owncloud/assets/logo.svg"
+ 	if !strings.HasPrefix(logo, "/") && !strings.HasPrefix(logo, "http") {
+-		logo = "/" + logo
++		logo = basePath + "/" + logo
+ 	}
+ 	return logo
+ }
+diff --git a/services/idp/pkg/service/v0/service_test.go b/services/idp/pkg/service/v0/service_test.go
+index d7c0bc32..9039cee0 100644
+--- a/services/idp/pkg/service/v0/service_test.go
++++ b/services/idp/pkg/service/v0/service_test.go
+@@ -492,3 +492,66 @@ func TestConsentRedirect(t *testing.T) {
+ 		t.Errorf("redirect dropped query params: %q", loc)
+ 	}
+ }
++
++func TestSubpathLoginPages(t *testing.T) {
++	for _, prefix := range []string{"", "/", "/ocis", "/team/files/"} {
++		t.Run(prefix, func(t *testing.T) {
++			_, srv := newTestService(t, func(cfg *config.Config) {
++				cfg.IDP.URIBasePath = prefix
++				cfg.Commons.OcisURL = ""
++			})
++			base := pathWithOptionalPrefix(prefix, "/signin/v1")
++			for _, page := range []string{"identifier", "identifier/", "identifier/index.html", "welcome", "goodbye", "consent", "loginerror", "chooseaccount"} {
++				code, body, _ := getPage(t, srv, base+"/"+page, "")
++				if code != http.StatusOK || !strings.Contains(body, base+"/static/theme.css") {
++					t.Errorf("page %s: status %d or missing prefixed CSS", page, code)
++				}
++			}
++			code, _, headers := getPage(t, srv, base+"/static/theme.css", "")
++			if code != http.StatusOK || headers.Get("Cache-Control") != "no-cache" {
++				t.Errorf("CSS: status %d, headers %v", code, headers)
++			}
++			code, _, _ = getPage(t, srv, base+"/static/", "")
++			if code != http.StatusNotFound {
++				t.Errorf("directory listing: status %d", code)
++			}
++			code, body, _ := getPage(t, srv, pathWithOptionalPrefix(prefix, "/.well-known/openid-configuration"), "")
++			if code != http.StatusOK || !strings.Contains(body, "issuer") {
++				t.Errorf("discovery: status %d, body %s", code, body)
++			}
++			client := &http.Client{CheckRedirect: func(req *http.Request, via []*http.Request) error { return http.ErrUseLastResponse }}
++			resp, err := client.Get(srv.URL + base + "/identifier?flow=consent&state=abc")
++			if err != nil {
++				t.Fatal(err)
++			}
++			defer resp.Body.Close()
++			if got := resp.Header.Get("Location"); got != base+"/consent?flow=consent&state=abc" {
++				t.Errorf("consent redirect: %s", got)
++			}
++		})
++	}
++}
++
++func TestSubpathLoginLogo(t *testing.T) {
++	for _, logo := range []string{"themes/owncloud/assets/logo.svg", "/custom/logo.svg", "https://example.org/logo.svg", ""} {
++		t.Run(logo, func(t *testing.T) {
++			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++				if r.URL.Path != "/ocis/themes/owncloud/theme.json" {
++					t.Errorf("theme path: %s", r.URL.Path)
++				}
++				fmt.Fprintf(w, `{"common":{"logo":%q}}`, logo)
++			}))
++			defer srv.Close()
++			want := logo
++			if logo == "" {
++				want = "/ocis/themes/owncloud/assets/logo.svg"
++			}
++			if logo == "themes/owncloud/assets/logo.svg" {
++				want = "/ocis/" + logo
++			}
++			if got := fetchLoginLogoURL(srv.URL+"/ocis/", false); got != want {
++				t.Errorf("logo = %s, want %s", got, want)
++			}
++		})
++	}
++}
 diff --git a/vendor/github.com/libregraph/lico/bootstrap/bootstrap.go b/vendor/github.com/libregraph/lico/bootstrap/bootstrap.go
-index a06ac946..1c9ab99a 100644
+index 14bd2b3c..f5f1062a 100644
 --- a/vendor/github.com/libregraph/lico/bootstrap/bootstrap.go
 +++ b/vendor/github.com/libregraph/lico/bootstrap/bootstrap.go
-@@ -407,6 +407,15 @@ func (bs *bootstrap) MakeURIPath(api APIType, subpath string) string {
+@@ -415,6 +415,15 @@ func (bs *bootstrap) MakeURIPath(api APIType, subpath string) string {
  	return uriPath
  }
  
@@ -18,7 +264,7 @@ index a06ac946..1c9ab99a 100644
  func (bs *bootstrap) MakeURI(api APIType, subpath string) *url.URL {
  	uriPath := bs.MakeURIPath(api, subpath)
  	uri, _ := url.Parse(bs.config.IssuerIdentifierURI.String())
-@@ -474,7 +483,7 @@ func (bs *bootstrap) setupOIDCProvider(ctx context.Context) (*oidcProvider.Provi
+@@ -482,7 +491,7 @@ func (bs *bootstrap) setupOIDCProvider(ctx context.Context) (*oidcProvider.Provi
  		Config: bs.config.Config,
  
  		IssuerIdentifier:       bs.config.IssuerIdentifierURI.String(),
@@ -27,165 +273,3 @@ index a06ac946..1c9ab99a 100644
  		JwksPath:               bs.MakeURIPath(APITypeKonnect, "/jwks.json"),
  		AuthorizationPath:      bs.config.AuthorizationEndpointURI.EscapedPath(),
  		TokenPath:              bs.MakeURIPath(APITypeKonnect, "/token"),
-diff --git a/services/idp/src/App.jsx b/services/idp/src/App.jsx
-index 47e2e5e9..80dded80 100644
---- a/services/idp/src/App.jsx
-+++ b/services/idp/src/App.jsx
-@@ -12,6 +12,22 @@ const LazyMain = lazy(() => import(/* webpackChunkName: "identifier-main" */ './
- 
- console.info(`Kopano Identifier build version: ${version.build}`) // eslint-disable-line no-console
- 
-+const webConfigUrl = () => {
-+  const root = document.getElementById('root')
-+  const pathPrefix = root ? root.getAttribute('data-path-prefix') : ''
-+  if (!pathPrefix || pathPrefix === '__PATH_PREFIX__') {
-+    return '/config.json'
-+  }
-+
-+  const normalizedPrefix = pathPrefix.replace(/\/+$/, '')
-+  const signInIndex = normalizedPrefix.indexOf('/signin/v1')
-+  if (signInIndex <= 0) {
-+    return '/config.json'
-+  }
-+
-+  return `${normalizedPrefix.slice(0, signInIndex)}/config.json`
-+}
-+
- const App = ({ bgImg }): ReactElement => {
-   const [theme, setTheme] = useState(null)
-   const [config, setConfig] = useState(null)
-@@ -21,7 +37,7 @@ const App = ({ bgImg }): ReactElement => {
-   useEffect(() => {
-     const fetchData = async () => {
-       try {
--        const configResponse = await fetch('/config.json')
-+        const configResponse = await fetch(webConfigUrl())
-         const configData = await configResponse.json()
-         setConfig(configData)
- 
-diff --git a/services/idp/src/components/ResponsiveScreen.jsx b/services/idp/src/components/ResponsiveScreen.jsx
-index 5d7b4b20..19c55fb3 100644
---- a/services/idp/src/components/ResponsiveScreen.jsx
-+++ b/services/idp/src/components/ResponsiveScreen.jsx
-@@ -34,10 +34,20 @@ const ResponsiveScreen = (props) => {
-     className,
-     ...other
-   } = props;
--  const { theme } = useContext(InfiniteScaleContext);
-+  const { theme, config } = useContext(InfiniteScaleContext);
-+
-+  const themedAssetUrl = (assetPath) => {
-+    if (!assetPath || /^https?:\/\//.test(assetPath)) {
-+      return assetPath
-+    }
-+
-+    const base = config?.server ? config.server.replace(/\/+$/, '') : ''
-+    const normalizedPath = assetPath.replace(/^\/+/, '')
-+    return base ? `${base}/${normalizedPath}` : `/${normalizedPath}`
-+  }
- 
-   const logo = (theme && !withoutLogo) ? (
--        <img src={'/' + theme.common?.logo} className="oc-logo" alt="ownCloud Logo"/>
-+        <img src={themedAssetUrl(theme.common?.logo)} className="oc-logo" alt="ownCloud Logo"/>
-     ) : null;
- 
-   const content = loading ? <Loading/> : (withoutPadding ? children : <DialogContent>{children}</DialogContent>);
-diff --git a/services/idp/pkg/middleware/static.go b/services/idp/pkg/middleware/static.go
-index fb1b987a..48847c91 100644
---- a/services/idp/pkg/middleware/static.go
-+++ b/services/idp/pkg/middleware/static.go
-@@ -15,6 +15,8 @@ func Static(root string, fs http.FileSystem, tp trace.TracerProvider) func(http.
- 	if !strings.HasSuffix(root, "/") {
- 		root = root + "/"
- 	}
-+	staticPrefix := root + "static/"
-+	staticTargetPrefix := root + "identifier/static/"
- 
- 	static := http.StripPrefix(
- 		root,
-@@ -33,14 +35,14 @@ func Static(root string, fs http.FileSystem, tp trace.TracerProvider) func(http.
- 			r = r.WithContext(ctx)
- 
- 			// serve the static assets for the identifier web app
--			if strings.HasPrefix(r.URL.Path, "/signin/v1/static/") {
-+			if strings.HasPrefix(r.URL.Path, staticPrefix) {
- 				if strings.HasSuffix(r.URL.Path, "/") {
- 					// but no listing of folders
- 					span.SetAttributes(attribute.KeyValue{Key: "path", Value: attribute.StringValue(r.URL.Path)})
- 					span.SetStatus(codes.Error, "asset not found")
- 					http.NotFound(w, r)
- 				} else {
--					r.URL.Path = strings.Replace(r.URL.Path, "/signin/v1/static/", "/signin/v1/identifier/static/", 1)
-+					r.URL.Path = strings.Replace(r.URL.Path, staticPrefix, staticTargetPrefix, 1)
- 					span.SetAttributes(attribute.KeyValue{Key: "server", Value: attribute.StringValue(r.URL.Path)})
- 					static.ServeHTTP(w, r)
- 				}
-diff --git a/services/idp/pkg/service/v0/service.go b/services/idp/pkg/service/v0/service.go
-index 0db1d0a6..d25f484f 100644
---- a/services/idp/pkg/service/v0/service.go
-+++ b/services/idp/pkg/service/v0/service.go
-@@ -258,6 +258,8 @@ type IDP struct {
- 
- // initMux initializes the internal idp gorilla mux and mounts it in to an ocis chi-router
- func (idp *IDP) initMux(ctx context.Context, r []server.WithRoutes, h http.Handler, options Options) {
-+	signInPrefix := pathWithOptionalPrefix(options.Config.IDP.URIBasePath, "/signin/v1")
-+
- 	gm := mux.NewRouter()
- 	for _, route := range r {
- 		route.AddRoutes(ctx, gm)
-@@ -272,7 +274,7 @@ func (idp *IDP) initMux(ctx context.Context, r []server.WithRoutes, h http.Handl
- 	idp.mux.Use(options.Middleware...)
- 
- 	idp.mux.Use(middleware.Static(
--		"/signin/v1/",
-+		signInPrefix+"/",
- 		assets.New(
- 			assets.Logger(options.Logger),
- 			assets.Config(options.Config),
-@@ -281,9 +283,9 @@ func (idp *IDP) initMux(ctx context.Context, r []server.WithRoutes, h http.Handl
- 	))
- 
- 	// handle / | index.html with a template that needs to have the BASE_PREFIX replaced
--	idp.mux.Get("/signin/v1/identifier", idp.Index())
--	idp.mux.Get("/signin/v1/identifier/", idp.Index())
--	idp.mux.Get("/signin/v1/identifier/index.html", idp.Index())
-+	idp.mux.Get(signInPrefix+"/identifier", idp.Index())
-+	idp.mux.Get(signInPrefix+"/identifier/", idp.Index())
-+	idp.mux.Get(signInPrefix+"/identifier/index.html", idp.Index())
- 
- 	idp.mux.Mount("/", gm)
- 
-@@ -293,6 +295,18 @@ func (idp *IDP) initMux(ctx context.Context, r []server.WithRoutes, h http.Handl
- 	})
- }
- 
-+func pathWithOptionalPrefix(prefix string, subpath string) string {
-+	prefix = strings.TrimSuffix(prefix, "/")
-+	subpath = "/" + strings.Trim(subpath, "/")
-+	if prefix == "" || prefix == "/" {
-+		return subpath
-+	}
-+	if !strings.HasPrefix(prefix, "/") {
-+		prefix = "/" + prefix
-+	}
-+	return prefix + subpath
-+}
-+
- // ServeHTTP implements the Service interface.
- func (idp *IDP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
- 	idp.mux.ServeHTTP(w, r)
-@@ -313,12 +327,11 @@ func (idp *IDP) Index() http.HandlerFunc {
- 		idp.logger.Fatal().Err(err).Msg("Could not close body")
- 	}
- 
--	// TODO add environment variable to make the path prefix configurable
--	pp := "/signin/v1"
-+	pp := pathWithOptionalPrefix(idp.config.IDP.URIBasePath, "/signin/v1")
- 	indexHTML := bytes.Replace(template, []byte("__PATH_PREFIX__"), []byte(pp), 1)
- 
- 	background := idp.config.Asset.LoginBackgroundUrl
--	indexHTML = bytes.Replace(template, []byte("__BG_IMG_URL__"), []byte(background), 1)
-+	indexHTML = bytes.Replace(indexHTML, []byte("__BG_IMG_URL__"), []byte(background), 1)
- 
- 	nonce := rndm.GenerateRandomString(32)
- 	indexHTML = bytes.Replace(indexHTML, []byte("__CSP_NONCE__"), []byte(nonce), 1)

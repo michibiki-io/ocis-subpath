@@ -1,5 +1,7 @@
 import json
 import os
+import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -297,6 +299,46 @@ class PatcherTests(unittest.TestCase):
         self.assertIn("URL.createObjectURL", patched)
         self.assertIn("s.renderer.rules.link_open=function(l,u,c,d,p)", patched)
         self.assertIn('f.attrSet("rel","noopener noreferrer")', patched)
+
+    @unittest.skipUnless(shutil.which("node"), "Node.js is required for generated JS execution")
+    def test_markdown_image_resolver_does_not_shadow_minified_props(self):
+        source = (
+            'const TK=Oe({__name:"TextEditor",setup(PROPS){return eI({markdownItConfig(s){'
+            's.renderer.rules.link_open=function(l,u,c,d,p){const f=l[u];'
+            'return f.attrGet("href")&&(f.attrSet("target","_blank"),'
+            'f.attrSet("rel","noopener noreferrer")),p.renderToken(l,u,c)}}})}});'
+        )
+        harness = r"""
+const vm = require('node:vm');
+const assert = require('node:assert/strict');
+let input = '';
+process.stdin.on('data', chunk => input += chunk);
+process.stdin.on('end', () => {
+  let md;
+  const context = {
+    URL, window: {}, document: {baseURI: 'https://example.test/ocis/'},
+    location: {pathname: '/ocis/text-editor/spaces/drive/docs/file.md'},
+    setTimeout: () => {},
+    Oe: component => component,
+    eI: config => {
+      md = {renderer: {rules: {image: (tokens, idx) => tokens[idx].attrGet('src')}}};
+      config.markdownItConfig(md);
+    }
+  };
+  vm.runInNewContext(input + '\nTK.setup({resource:{webDavPath:"/spaces/drive/docs/file.md"}})', context);
+  const attrs = {src: './image.svg'};
+  const token = {attrGet: key => attrs[key], attrSet: (key, value) => attrs[key] = value};
+  md.renderer.rules.image([token], 0, {}, {}, {});
+  assert.equal(attrs['data-ocis-markdown-image-src'], '/ocis/dav/spaces/drive/docs/image.svg');
+  assert.match(attrs.src, /^data:image/);
+});
+"""
+        for props in ("t", "e", "n", "r", "i"):
+            with self.subTest(props=props):
+                patched, count = patch_markdown_image_sources(source.replace("PROPS", props), "/ocis")
+                self.assertEqual(count, 1)
+                result = subprocess.run(["node", "-e", harness], input=patched, text=True, capture_output=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_requires_index_and_js(self):
         with tempfile.TemporaryDirectory() as tmpdir:

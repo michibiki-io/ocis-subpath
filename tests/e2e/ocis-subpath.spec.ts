@@ -450,9 +450,18 @@ async function uploadVideoViaTus(api: APIRequestContext, driveId: string, folder
 }
 
 async function deleteSpaceFile(api: APIRequestContext, driveId: string, fileName: string) {
-  const response = await api.delete(url(`/dav/spaces/${encodePath(driveId, fileName)}`), {
-    failOnStatusCode: false
-  })
+  const fileUrl = url(`/dav/spaces/${encodePath(driveId, fileName)}`)
+  for (let attempt = 0; attempt < 30; attempt += 1) {
+    const response = await api.delete(fileUrl, { failOnStatusCode: false })
+    if ([200, 204, 404].includes(response.status())) {
+      return
+    }
+    if (response.status() !== 425) {
+      ensureStatus(response, [200, 204, 404], `delete ${fileName}`)
+    }
+    await sleep(1_000)
+  }
+  const response = await api.delete(fileUrl, { failOnStatusCode: false })
   ensureStatus(response, [200, 204, 404], `delete ${fileName}`)
 }
 
@@ -473,7 +482,10 @@ async function putSpaceFile(
 }
 
 async function downloadSpaceFile(api: APIRequestContext, driveId: string, fileName: string): Promise<Buffer> {
-  const fileUrl = url(`/dav/spaces/${encodePath(driveId, fileName)}`)
+  return downloadReadyFile(api, url(`/dav/spaces/${encodePath(driveId, fileName)}`))
+}
+
+async function downloadReadyFile(api: APIRequestContext, fileUrl: string): Promise<Buffer> {
   for (let attempt = 0; attempt < 30; attempt += 1) {
     const response = await api.get(fileUrl, { failOnStatusCode: false })
     if (response.status() === 200) {
@@ -920,8 +932,28 @@ async function openDrawioFile(page: Page, fileName: string) {
   await waitForStableLoad(page)
   const fileEntry = page.getByText(fileName, { exact: true }).first()
   await expect(fileEntry).toBeVisible({ timeout: 60_000 })
+  let suggestedDownload: string | undefined
+  const downloadPromise = page.waitForEvent('download', { timeout: 30_000 })
+    .then((download) => {
+      suggestedDownload = download.suggestedFilename()
+      return suggestedDownload
+    })
+    .catch(() => undefined)
+  const editorUrlPromise = page.waitForURL(new RegExp(`${escapedUrlPath(basePath)}/drawio-editor(?:/|$)`), {
+    timeout: 30_000
+  })
   await fileEntry.dblclick()
-  await expect(page).toHaveURL(new RegExp(`${escapedUrlPath(basePath)}/drawio-editor(?:/|$)`), { timeout: 30_000 })
+  const firstAction = await Promise.race([
+    editorUrlPromise.then(() => ({ type: 'editor' as const })),
+    downloadPromise.then((suggestedFilename) =>
+      suggestedFilename
+        ? { type: 'download' as const, suggestedFilename }
+        : { type: 'timeout' as const }
+    )
+  ])
+  expect(firstAction, `${fileName} should open the draw.io editor instead of downloading`).toEqual({ type: 'editor' })
+  await page.waitForTimeout(1_000)
+  expect(suggestedDownload, `${fileName} should not trigger a browser download`).toBeUndefined()
 
   const iframe = page.locator('iframe#drawio-editor')
   await expect(iframe).toBeVisible({ timeout: 30_000 })
@@ -1240,9 +1272,8 @@ test('Provisioned users, groups, spaces, markdown, and zip sharing work from a s
     const markdownFileId = await fileIdFromPropfind(aliceApi, aliceSalesDriveId, markdownFileName)
     const versions = await fileVersionKeys(aliceApi, markdownFileId)
     expect(versions.length).toBeGreaterThanOrEqual(1)
-    const versionPreview = await aliceApi.get(url(`/remote.php/dav/meta/${encodePath(markdownFileId)}/v/${encodePath(versions[0])}`))
-    expect(versionPreview.status()).toBe(200)
-    expect(await versionPreview.text()).toContain('CommonMark Smoke Test')
+    const versionPreview = await downloadReadyFile(aliceApi, url(`/remote.php/dav/meta/${encodePath(markdownFileId)}/v/${encodePath(versions[0])}`))
+    expect(versionPreview.toString('utf8')).toContain('CommonMark Smoke Test')
     await expect.poll(async () => (await downloadSpaceFile(aliceApi!, aliceSalesDriveId, markdownFileName)).toString('utf8')).toContain(randomLine)
     await aliceRecording.page.reload({ waitUntil: 'domcontentloaded' })
     await waitForStableLoad(aliceRecording.page)
