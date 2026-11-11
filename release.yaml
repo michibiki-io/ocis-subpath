@@ -1,8 +1,8 @@
 release:
   mode: auto
 ocis:
-  upstreamRef: v8.2.2
-  imageTag: 8.2.2-subpath.1
+  upstreamRef: v8.2.3
+  imageTag: 8.2.3-subpath.1
   repo: https://github.com/owncloud/ocis.git
 web:
   upstreamRef: v12.5.0
